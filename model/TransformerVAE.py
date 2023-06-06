@@ -38,13 +38,14 @@ class VAEModel(nn.Module):
     def __init__(self,
                  in_channels: int,
                  latent_dim: int = 256,
+                 device='cuda',
                  **kwargs) -> None:
         super(VAEModel, self).__init__()
 
         self.latent_dim = latent_dim
         self.in_channels = in_channels
         self.linear = nn.Linear(in_channels, latent_dim)
-
+        self.device = device 
         seq_trans_encoder_layer = nn.TransformerEncoderLayer(d_model=latent_dim,
                                                              nhead=4,
                                                              dim_feedforward=1024,
@@ -68,8 +69,11 @@ class VAEModel(nn.Module):
 
         x = x.permute(1, 0, 2)
 
-        token_mask = torch.ones((B, 2), dtype=bool, device=input.get_device())
-        mask = lengths_to_mask(lengths, input.get_device())
+        token_mask = torch.ones((B, 2), dtype=bool, device=self.device)
+        # token_mask = torch.ones((B, 2), dtype=bool)
+        # mask = lengths_to_mask(lengths, input.get_device())
+        mask = lengths_to_mask(lengths, device=self.device)
+
 
         aug_mask = torch.cat((token_mask, mask), 1)
 
@@ -79,7 +83,9 @@ class VAEModel(nn.Module):
         logvar = x[1]
         std = logvar.exp().pow(0.5)
         dist = torch.distributions.Normal(mu, std)
-        motion_sample = self.sample_from_distribution(dist).to(input.get_device())
+        motion_sample = self.sample_from_distribution(dist).to(self.device)
+        # motion_sample = self.sample_from_distribution(dist)
+
         return motion_sample, dist
 
     def sample_from_distribution(self, distribution):
@@ -96,7 +102,7 @@ class Decoder(nn.Module):
         # self.output_vector_dim = output_vector_dim
         self.device = device
 
-        self.vae_model = VAEModel(feature_dim, feature_dim)
+        self.vae_model = VAEModel(feature_dim, feature_dim, device=device)
 
         decoder_layer = nn.TransformerDecoderLayer(d_model=feature_dim, nhead=n_head, dim_feedforward=2*feature_dim, batch_first=True)
         self.listener_reaction_decoder_1 = nn.TransformerDecoder(decoder_layer, num_layers=1)
@@ -150,7 +156,7 @@ class SpeakerBehaviourEncoder(nn.Module):
 
 
 class TransformerVAE(nn.Module):
-    def __init__(self, img_size=224, audio_dim = 128, output_3dmm_dim = 58, output_emotion_dim = 25, feature_dim = 128, seq_len=751, online = True, window_size = 8, device = 'cpu'):
+    def __init__(self, img_size=224, audio_dim = 78, output_3dmm_dim = 58, output_emotion_dim = 25, feature_dim = 128, seq_len=751, online = False, window_size = 8, device = 'cuda'):
         super(TransformerVAE, self).__init__()
 
         self.img_size = img_size

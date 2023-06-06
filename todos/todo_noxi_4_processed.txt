@@ -1,0 +1,6 @@
+../data/combined/Videos/UDIVA/animal/079123/FC2/2.mp4
+../data/combined/Videos/UDIVA/animal/079123/FC2/9.mp4
+../data/combined/Videos/UDIVA/animal/144176/FC2/15.mp4
+../data/combined/Videos/UDIVA/talk/005013/FC1/15.mp4
+../data/combined/Videos/UDIVA/animal/118125/FC2/3.mp4
+../data/combined/Videos/UDIVA/animal/079123/FC2/4.mp4

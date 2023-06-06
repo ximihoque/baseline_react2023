@@ -17,24 +17,24 @@ from dataset import get_dataloader
 def parse_arg():
     parser = argparse.ArgumentParser(description='PyTorch Training')
     # Param
-    parser.add_argument('--dataset-path', default="./data", type=str, help="dataset path")
+    parser.add_argument('--dataset-path', default="../data/combined", type=str, help="dataset path")
     parser.add_argument('--resume', default="", type=str, help="checkpoint path")
     parser.add_argument('-b', '--batch-size', default=4, type=int, metavar='N', help='mini-batch size (default: 4)')
     parser.add_argument('-lr', '--learning-rate', default=0.0001, type=float, metavar='LR',
                         help='initial learning rate')
     parser.add_argument('-e', '--epochs', default=100, type=int, metavar='N', help='number of total epochs to run')
-    parser.add_argument('-j', '--num_workers', default=8, type=int, metavar='N',
+    parser.add_argument('-j', '--num_workers', default=1, type=int, metavar='N',
                         help='number of data loading workers (default: 8)')
     parser.add_argument('--weight-decay', '-wd', default=5e-4, type=float, metavar='W',
                         help='weight decay (default: 1e-4)')
     parser.add_argument('--optimizer-eps', default=1e-8, type=float)
     parser.add_argument('--img-size', default=256, type=int, help="size of train/test image data")
     parser.add_argument('--crop-size', default=224, type=int, help="crop size of train/test image data")
-    parser.add_argument('-seq-len', default=751, type=int, help="length of clip")
+    parser.add_argument('--seq-len', default=751, type=int, help="length of clip")
     parser.add_argument('--window-size', default=8, type=int, help="prediction window-size for online mode")
     parser.add_argument('--feature-dim', default=128, type=int, help="feature dim of model")
     parser.add_argument('--audio-dim', default=78, type=int, help="feature dim of audio")
-    parser.add_argument('--_3dmm-dim,', default=58, type=int, help="feature dim of 3dmm")
+    parser.add_argument('--_3dmm-dim', default=58, type=int, help="feature dim of 3dmm")
     parser.add_argument('--emotion-dim', default=25, type=int, help="feature dim of emotion")
     parser.add_argument('--online', action='store_true', help='online / offline method')
     parser.add_argument('--momentum', type=float, default=0.99)
@@ -54,8 +54,10 @@ def train(model, train_loader, optimizer, criterion):
     kld_losses = AverageMeter()
 
     model.train()
-    for batch_idx, (speaker_video_clip, speaker_audio_clip, _, _, _, listener_emotion, listener_3dmm, _) in enumerate(tqdm(train_loader)):
+    print ('before enumeration')
+    for batch_idx, (speaker_video_clip, speaker_audio_clip, _, _, _, _, listener_emotion, listener_3dmm, _) in enumerate(tqdm(train_loader)):
         if torch.cuda.is_available():
+#             print ("Loading into GPU")
             speaker_video_clip, speaker_audio_clip, listener_emotion, listener_3dmm = \
                 speaker_video_clip[:,:750].cuda(), speaker_audio_clip[:,:750].cuda(), listener_emotion[:,:750].cuda(), listener_3dmm[:,:750].cuda()
 
@@ -81,7 +83,7 @@ def val(args, model, val_loader, criterion, render, epoch):
     rec_losses = AverageMeter()
     kld_losses = AverageMeter()
     model.eval()
-    for batch_idx, (speaker_video_clip, speaker_audio_clip, _, _, _, listener_emotion, listener_3dmm, listener_references) in enumerate(tqdm(val_loader)):
+    for batch_idx, (speaker_video_clip, speaker_audio_clip, _, _, _,_, listener_emotion, listener_3dmm, listener_references) in enumerate(tqdm(val_loader)):
         if torch.cuda.is_available():
             speaker_video_clip, speaker_audio_clip, listener_emotion, listener_3dmm, listener_references = \
                 speaker_video_clip[:,:750].cuda(), speaker_audio_clip[:,:750].cuda(), listener_emotion[:,:750].cuda(), listener_3dmm[:,:750].cuda(), listener_references[:,:750].cuda()
@@ -111,9 +113,14 @@ def val(args, model, val_loader, criterion, render, epoch):
 def main(args):
     start_epoch = 0
     lowest_val_loss = 10000
-    train_loader = get_dataloader(args, "train", load_ref=False, load_video_l=False)
-    val_loader = get_dataloader(args, "val", load_video_l=False)
-    model = TransformerVAE(img_size = args.img_size, audio_dim = args.audio_dim,  output_3dmm_dim = args._3dmm_dim, output_emotion_dim = args.emotion_dim, feature_dim = args.feature_dim, seq_len = args.seq_len, online = args.online, window_size = args.window_size, device = args.device)
+    
+    # train dataloader
+    train_loader = get_dataloader(args, "data/train.csv", load_audio=True, load_video_s=True, load_emotion_l=True, load_3dmm_l=True)
+    
+    # val dataloader
+    val_loader = get_dataloader(args, "data/val.csv", load_audio=True, load_video_s=True, load_emotion_l=True, load_3dmm_l=True, load_ref=True)
+    
+    model = TransformerVAE(img_size = args.img_size, audio_dim = args.audio_dim,  output_3dmm_dim = 58, output_emotion_dim = args.emotion_dim, feature_dim = args.feature_dim, seq_len = args.seq_len, online = args.online, window_size = args.window_size, device = args.device)
     criterion = VAELoss(args.kl_p)
 
     optimizer = optim.AdamW(model.parameters(), betas=(0.9, 0.999), lr=args.learning_rate, weight_decay=args.weight_decay)
@@ -125,6 +132,7 @@ def main(args):
         model.load_state_dict(state_dict)
 
     if torch.cuda.is_available():
+        print ("Using GPU")
         model = model.cuda()
         render = Render('cuda')
     else:
