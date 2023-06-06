@@ -13,8 +13,6 @@ from PIL import Image
 import soundfile as sf
 import cv2
 from torch.utils.data import DataLoader
-
-# import librosa
 from multiprocessing import Pool
 import torchaudio
 from scipy.io import loadmat
@@ -38,6 +36,7 @@ class Transform(object):
         ])
         img = transform(img)
         return img
+
 
 def pil_loader(path):
     with open(path, 'rb') as f:
@@ -138,14 +137,13 @@ class ReactionDataset(data.Dataset):
         self._emotion_path = os.path.join(self._data_path, 'Emotions')
         self._3dmm_path = os.path.join(self._data_path, '3D_FVs')
 
-
         self.mean_face = torch.FloatTensor(
             np.load('external/FaceVerse/mean_face.npy').astype(np.float32)).view(1, 1, -1)
         self.std_face = torch.FloatTensor(
             np.load('external/FaceVerse/std_face.npy').astype(np.float32)).view(1, 1, -1)
 
-#         self._transform = Transform(img_size, crop_size)
-        self._transform_3dmm = transforms.Lambda(lambda e: (e - self.mean_face) )
+        self._transform = Transform(img_size, crop_size)
+        self._transform_3dmm = transforms.Lambda(lambda e: (e - self.mean_face))
 
         speaker_path = list(self._list_path.values[:, 1])
         listener_path = list(self._list_path.values[:, 2])
@@ -178,7 +176,6 @@ class ReactionDataset(data.Dataset):
 
         self._len =  len(self.data_list)
 
-
     def __getitem__(self, index):
         """Returns one data pair (source and target)."""
         # seq_len, fea_dim
@@ -186,15 +183,15 @@ class ReactionDataset(data.Dataset):
 
         # ========================= Data Augmentation ==========================
         changed_sign = 0
-        if self._split == 'train': # only done at training time
-            changed_sign = random.randint(0,1)
+        if self._split == 'train':  # only done at training time
+            changed_sign = random.randint(0, 1)
 
         speaker_prefix = 'speaker' if changed_sign == 0 else 'listener'
         listener_prefix = 'listener' if changed_sign == 0 else 'speaker'
 
         # ========================= Load Speaker & Listener video clip ==========================
-        speaker_video_path = data[f'{listener_prefix}_video_path']
-        listener_video_path = data[f'{speaker_prefix}_video_path']
+        speaker_video_path = data[f'{speaker_prefix}_video_path']
+        listener_video_path = data[f'{listener_prefix}_video_path']
 
 #         if self.load_video_s or self.load_video_l or self.load_ref: # otherwise, no need to compute these image paths
 #             img_paths = os.listdir(speaker_video_path)
@@ -236,35 +233,38 @@ class ReactionDataset(data.Dataset):
 #             speaker_audio_clip = extract_audio_features(speaker_audio_path, self._fps, total_length)
             speaker_audio_clip = speaker_audio_clip[cp:cp + self._clip_length]
 
+
         # ========================= Load Speaker & Listener emotion ==========================
         listener_emotion, speaker_emotion = 0, 0
         if self.load_emotion_l:
             listener_emotion_path = data[f'{listener_prefix}_emotion_path']
             listener_emotion = pd.read_csv(listener_emotion_path, header=None, delimiter=',')
-            listener_emotion = torch.from_numpy(np.array(listener_emotion.drop(0)).astype(np.float32))
-            
+            listener_emotion = torch.from_numpy(np.array(listener_emotion.drop(0)).astype(np.float32))[
+                               cp: cp + self._clip_length]
+
         if self.load_emotion_s:
             speaker_emotion_path = data[f'{speaker_prefix}_emotion_path']
             speaker_emotion = pd.read_csv(speaker_emotion_path, header=None, delimiter=',')
-            speaker_emotion = torch.from_numpy(np.array(speaker_emotion.drop(0)).astype(np.float32))
+            speaker_emotion = torch.from_numpy(np.array(speaker_emotion.drop(0)).astype(np.float32))[
+                               cp: cp + self._clip_length]
 
         # ========================= Load Speaker & Listener 3DMM ==========================
         
         
         listener_3dmm = 0
         if self.load_3dmm_l:
-            listener_3dmm_path = data[f'{speaker_prefix}_3dmm_path']
+            listener_3dmm_path = data[f'{listener_prefix}_3dmm_path']
             listener_3dmm = torch.FloatTensor(np.load(listener_3dmm_path)).squeeze()
             listener_3dmm = listener_3dmm[cp: cp + self._clip_length]
             listener_3dmm = self._transform_3dmm(listener_3dmm)[0]
-            
+
         speaker_3dmm = 0
         if self.load_3dmm_s:
             speaker_3dmm_path = data[f'{speaker_prefix}_3dmm_path']
             speaker_3dmm = torch.FloatTensor(np.load(speaker_3dmm_path)).squeeze()
             speaker_3dmm = speaker_3dmm[cp: cp + self._clip_length]
             speaker_3dmm = self._transform_3dmm(speaker_3dmm)[0]
-            
+
         # ========================= Load Listener Reference ==========================
         listener_reference = 0
         if self.load_ref:

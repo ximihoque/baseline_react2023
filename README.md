@@ -194,14 +194,14 @@ python -m pytorch_fid  ./results/val_offline/fid/real  ./results/val_offline/fid
 <details><summary> <b> Test </b>  </summary>
 <p>
  
-- Before testing, run the following script to get the martix (defining appropriate neighbours in val set):
+- Before testing, run the following script to get the martix (defining appropriate neighbours in test set):
  ```shell
  cd tool
  python matrix_split.py --dataset-path ./data --partition test
  ```
 &nbsp;  Please put files (`data_indices.csv`, `Approprirate_facial_reaction.npy` and `test.csv`) in the folder `./data/`.
   
-- Then, evaluate a trained model on val set and run:
+- Then, evaluate a trained model on test set and run:
 
  ```shell
 python evaluate.py  --resume ./results/train_offline/best_checkpoint.pth  --gpu-ids 1  --outdir results/test_offline --split test
@@ -271,7 +271,17 @@ python -m pytorch_fid  ./results/test_offline/fid/real  ./results/test_offline/f
   year={2017}
 }
 
+```
 
+If you use or compare to the diffusion-based baseline, please cite the following paper too:
+
+```BibTeX
+@article{barquero2022belfusion,
+  title={BeLFusion: Latent Diffusion for Behavior-Driven Human Motion Prediction},
+  author={Barquero, German and Escalera, Sergio and Palmero, Cristina},
+  journal={arXiv preprint arXiv:2211.14304},
+  year={2022}
+}
 ```
 
 ## 🤝 Acknowledgement
