@@ -19,6 +19,7 @@ from scipy.io import loadmat
 torchaudio.set_audio_backend("sox_io")
 from functools import cmp_to_key
 
+random.seed(72)
 
 class Transform(object):
     def __init__(self, img_size=256, crop_size=224):
@@ -58,9 +59,22 @@ def extract_video_features(video_path, img_transform):
     video_clip = torch.cat(video_list, axis=0)
     return video_clip, fps, n_frames
 
+def sample_audio(audio, fps, n_frames, src_sr, target_sr):
+    """Explicitly for torch audio ops
+    """
+    audio = torchaudio.functional.resample(audio, src_sr, target_sr)
+    sr = target_sr
+    audio = audio.mean(0)
+    frame_n_samples = int(sr / fps)
+    curr_length = len(audio)
+    target_length = frame_n_samples * n_frames
+    if curr_length > target_length:
+        audio = audio[:target_length]
+    elif curr_length < target_length:
+        audio = np.pad(audio, [0, target_length - curr_length])
+    return audio, frame_n_samples
 
-def extract_audio_features(audio_path, fps, n_frames):
-    # video_id = osp.basename(audio_path)[:-4]
+def load_audio(audio_path, fps, n_frames):
     audio, sr = sf.read(audio_path)
     if audio.ndim == 2:
         audio = audio.mean(-1)
@@ -71,6 +85,11 @@ def extract_audio_features(audio_path, fps, n_frames):
         audio = audio[:target_length]
     elif curr_length < target_length:
         audio = np.pad(audio, [0, target_length - curr_length])
+    return audio
+
+def extract_audio_features(audio_path, fps, n_frames):
+    # video_id = osp.basename(audio_path)[:-4]
+    audio = load_audio(audio_path, fps, n_frames)
     shifted_n_samples = 0
     curr_feats = []
     for i in range(n_frames):
@@ -95,7 +114,7 @@ class ReactionDataset(data.Dataset):
     """Custom data.Dataset compatible with data.DataLoader."""
     def __init__(self, root_path, split, img_size=256, crop_size=224, clip_length=751, fps=25,
                  load_audio=True, load_video_s=True, load_video_l=True, load_emotion_s=False, load_emotion_l=False,
-                 load_3dmm_s=False, load_3dmm_l=False, load_ref=True, repeat_mirrored=True):
+                 load_3dmm_s=False, load_3dmm_l=False, load_ref=True, repeat_mirrored=True, use_raw_audio=False):
         """
         Args:
             root_path: (str) Path to the data folder.
@@ -131,6 +150,7 @@ class ReactionDataset(data.Dataset):
         self.load_emotion_s = load_emotion_s
         self.load_emotion_l = load_emotion_l
         self.load_ref = load_ref
+        self.use_raw_audio = use_raw_audio
     
         self._audio_path = os.path.join(self._data_path, 'Audios')
         self._video_path = os.path.join(self._data_path, 'Videos')
@@ -158,12 +178,18 @@ class ReactionDataset(data.Dataset):
         for i, (sp, lp) in enumerate(zip(speaker_path, listener_path)):
 
             ab_speaker_video_path = os.path.join(self._video_path, sp + '.pt')
-            ab_speaker_audio_path = os.path.join(self._audio_path, sp +'_audio.npy')
+            if self.use_raw_audio:
+                ab_speaker_audio_path = os.path.join(self._audio_path, sp +'.wav')    
+            else:
+                ab_speaker_audio_path = os.path.join(self._audio_path, sp +'_audio.npy')
             ab_speaker_emotion_path = os.path.join(self._emotion_path, sp +'.csv')
             ab_speaker_3dmm_path = os.path.join(self._3dmm_path, sp + '.npy')
 
             ab_listener_video_path =  os.path.join(self._video_path, lp + '.pt')
-            ab_listener_audio_path = os.path.join(self._audio_path, lp +'_audio.npy')
+            if self.use_raw_audio:
+                ab_listener_audio_path = os.path.join(self._audio_path, lp +'.wav')
+            else:
+                ab_listener_audio_path = os.path.join(self._audio_path, lp +'_audio.npy')
             ab_listener_emotion_path = os.path.join(self._emotion_path, lp +'.csv')
             ab_listener_3dmm_path = os.path.join(self._3dmm_path, lp + '.npy')
             
@@ -205,6 +231,7 @@ class ReactionDataset(data.Dataset):
             speaker_video_clip = torch.load(speaker_video_path)
             total_length = speaker_video_clip.shape[0]
             cp = random.randint(0, total_length - 1 - self._clip_length) if self._clip_length < total_length else 0
+            speaker_video_clip = speaker_video_clip[cp:cp + self._clip_length]
 #             clip = []
 #             for img_path in img_paths:
 #                 img = self._img_loader(os.path.join(speaker_video_path, img_path))
@@ -229,9 +256,22 @@ class ReactionDataset(data.Dataset):
         listener_audio_clip, speaker_audio_clip = 0, 0
         if self.load_audio:
             speaker_audio_path = data[f'{listener_prefix}_audio_path']
-            speaker_audio_clip = np.load(speaker_audio_path, allow_pickle=True)
-#             speaker_audio_clip = extract_audio_features(speaker_audio_path, self._fps, total_length)
-            speaker_audio_clip = speaker_audio_clip[cp:cp + self._clip_length]
+            if self.use_raw_audio:
+                speaker_audio_clip, sr = torchaudio.load(speaker_audio_path)
+                speaker_audio_clip = torchaudio.functional.resample(speaker_audio_clip, sr, 16000)
+                speaker_audio_clip, frame_n_samples = sample_audio(speaker_audio_clip, fps=self._fps, src_sr=sr, 
+                                                                    target_sr=16000, n_frames=self._clip_length)
+
+                
+                # speaker_audio_clip = speaker_audio_clip[cp: cp + (self._clip_length*frame_n_samples)]
+                # print ('fps: ', self._fps)
+                # print ('n frames: ', sel)
+                # print ('spkr file: ', speaker_audio_path)
+                # print ('speaker clip size: ', speaker_audio_clip.shape)
+            else:
+                speaker_audio_clip = np.load(speaker_audio_path, allow_pickle=True)
+#               speaker_audio_clip = extract_audio_features(speaker_audio_path, self._fps, total_length)
+                speaker_audio_clip = speaker_audio_clip[cp:cp + self._clip_length]
 
 
         # ========================= Load Speaker & Listener emotion ==========================
@@ -282,7 +322,7 @@ class ReactionDataset(data.Dataset):
 
 
 def get_dataloader(conf, split, load_audio=False, load_video_s=False, load_video_l=False, load_emotion_s=False,
-                   load_emotion_l=False, load_3dmm_s=False, load_3dmm_l=False, load_ref=False, repeat_mirrored=False):
+                   load_emotion_l=False, load_3dmm_s=False, load_3dmm_l=False, load_ref=False, repeat_mirrored=False, use_raw_audio=False):
     
 #     assert split in ["train", "val", "test"], "split must be in [train, val, test]"
     #print('==> Preparing data for {}...'.format(split) + '\n')
@@ -298,7 +338,8 @@ def get_dataloader(conf, split, load_audio=False, load_video_s=False, load_video
                               load_3dmm_s=load_3dmm_s,
                               load_3dmm_l=load_3dmm_l, 
                               load_ref=load_ref, 
-                              repeat_mirrored=repeat_mirrored)
+                              repeat_mirrored=repeat_mirrored,
+                              use_raw_audio=use_raw_audio)
     
     shuffle = True if split == "train.csv" else False
     dataloader = DataLoader(dataset=dataset, batch_size=conf.batch_size, shuffle=shuffle, num_workers=conf.num_workers)

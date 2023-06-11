@@ -16,7 +16,7 @@ from model.losses import VAELoss, div_loss
 def parse_arg():
     parser = argparse.ArgumentParser(description='PyTorch Training')
     # Param
-    parser.add_argument('--dataset-path', default="../data/combined", type=str, help="dataset path")
+    parser.add_argument('--dataset-path', default="../data", type=str, help="dataset path")
     parser.add_argument('--resume', default="", type=str, help="checkpoint path")
     parser.add_argument('-b', '--batch-size', default=4, type=int, metavar='N', help='mini-batch size (default: 4)')
     parser.add_argument('-lr', '--learning-rate', default=0.0001, type=float, metavar='LR',
@@ -30,10 +30,11 @@ def parse_arg():
     parser.add_argument('--img-size', default=256, type=int, help="size of train/test image data")
     parser.add_argument('--crop-size', default=224, type=int, help="crop size of train/test image data")
     parser.add_argument('--seq-len', default=751, type=int, help="length of clip")
+    parser.add_argument('--max-seq-len', default=751, type=int, help="max length of clip")
     parser.add_argument('--window-size', default=8, type=int, help="prediction window-size for online mode")
     parser.add_argument('--feature-dim', default=128, type=int, help="feature dim of model")
     parser.add_argument('--audio-dim', default=78, type=int, help="feature dim of audio")
-    parser.add_argument('--_3dmm-dim', default=58, type=int, help="feature dim of 3dmm")
+    parser.add_argument('--use-hubert', default=False, type=bool, help="Use HuBERT model")
     parser.add_argument('--_3dmm-dim', default=58, type=int, help="feature dim of 3dmm")
     parser.add_argument('--emotion-dim', default=25, type=int, help="feature dim of emotion")
     parser.add_argument('--online', action='store_true', help='online / offline method')
@@ -57,12 +58,13 @@ def train(args, model, train_loader, optimizer, criterion):
     div_losses = AverageMeter()
 
     model.train()
-    print ('before enumeration')
+    print ('Before enumeration')
     for batch_idx, (speaker_video_clip, speaker_audio_clip, _, _, _, _, listener_emotion, listener_3dmm, _) in enumerate(tqdm(train_loader)):
+        # print ("Batch: ", batch_idx)
         if torch.cuda.is_available():
             speaker_video_clip, speaker_audio_clip,  listener_emotion, listener_3dmm = \
                 speaker_video_clip.cuda(), speaker_audio_clip.cuda(),  listener_emotion.cuda(), listener_3dmm.cuda()
-
+        # print ("Loaded to GPU.")
         listener_3dmm_out, listener_emotion_out, distribution = model(speaker_video_clip, speaker_audio_clip)
         loss, rec_loss, kld_loss = criterion(listener_emotion, listener_3dmm, listener_emotion_out, listener_3dmm_out,
                                              distribution)
@@ -129,12 +131,12 @@ def main(args):
     lowest_val_loss = 10000
     
     # train dataloader
-    train_loader = get_dataloader(args, "data/train.csv", load_audio=True, load_video_s=True, load_emotion_l=True, load_3dmm_l=True)
-    
+    train_loader = get_dataloader(args, "data/train.csv", load_audio=True, load_video_s=True, load_emotion_l=True, load_3dmm_l=True, use_raw_audio=args.use_hubert)
     # val dataloader
-    val_loader = get_dataloader(args, "data/val.csv", load_audio=True, load_video_s=True, load_emotion_l=True, load_3dmm_l=True, load_ref=True)
+    val_loader = get_dataloader(args, "data/val.csv", load_audio=True, load_video_s=True, load_emotion_l=True, load_3dmm_l=True, load_ref=True, use_raw_audio=args.use_hubert)
     
-    model = TransformerVAE(img_size = args.img_size, audio_dim = args.audio_dim,  output_3dmm_dim = 58, output_emotion_dim = args.emotion_dim, feature_dim = args.feature_dim, seq_len = args.seq_len, online = args.online, window_size = args.window_size, device = args.device)
+    model = TransformerVAE(img_size = args.img_size, audio_dim = args.audio_dim,  output_3dmm_dim = args._3dmm_dim, output_emotion_dim = args.emotion_dim, feature_dim = args.feature_dim, 
+    seq_len = args.seq_len, max_seq_len=args.max_seq_len, online = args.online, window_size = args.window_size, use_hubert=args.use_hubert, device = args.device)
     criterion = VAELoss(args.kl_p)
 
     optimizer = optim.AdamW(model.parameters(), betas=(0.9, 0.999), lr=args.learning_rate, weight_decay=args.weight_decay)

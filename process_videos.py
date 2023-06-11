@@ -10,6 +10,10 @@ from tqdm import tqdm
 from multiprocessing import Pool
 import numpy as np
 
+from imutils.video import FileVideoStream
+from imutils.video import FPS
+import time
+
 # ---------- CONFIG ------------
 IMG_SIZE = 256
 CROP_SIZE = 224
@@ -39,24 +43,31 @@ def pil_loader(path):
 
 def extract_video_features(video_path, img_transform, clip_length):
     video_list = []
-    video = cv2.VideoCapture(video_path)
-    n_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = video.get(cv2.CAP_PROP_FPS)
+    # video = cv2.VideoCapture(video_path)
+    # n_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+    # fps = video.get(cv2.CAP_PROP_FPS)
+
+    fvs = FileVideoStream(video_path).start()
+    time.sleep(1)
+    fps = FPS().start()
     
 #     print ('FPS: ', fps)
 #     print ('#Frames: ', n_frames)
-    while video.isOpened():
-        ret, frame = video.read()
-        if not ret:
-            break
-            
-        img_arr = frame[:, :, ::-1].transpose(2, 1, 0).astype(np.float32).copy()
-        img_arr = torch.from_numpy(img_arr).to('cuda')
-        img_arr = img_transform(img_arr).to('cpu').unsqueeze(0)
+    cnt = 0
+    while fvs.more():
 
-        video_list.append(img_arr)
+        frame = fvs.read()
+        print ("#Frame: {}".format(cnt), end='\r')
+        cnt +=1 
+        if frame is not None:
+            img_arr = frame[:, :, ::-1].transpose(2, 1, 0).astype(np.float32).copy()
+            img_arr = torch.from_numpy(img_arr).to('cuda')
+#             img_arr = img_transform(img_arr).unsqueeze(0)
+
+            video_list.append(img_arr)
     
     total_length = len(video_list)
+#     print ('total length: ', total_length)
     clamp_pos = random.randint(0, total_length - 1 - clip_length) if clip_length < total_length else 0
     video_list = video_list[clamp_pos: clamp_pos + clip_length]
     
@@ -104,21 +115,21 @@ def write_errors(todo_path, fname):
         f.write('\n')
 
 def process_video(video_path):
-    try:
+    # try:
         arr = extract_video_features(video_path, transform, CLIP_LENGTH)
         torch.save(arr, video_path.split('.mp4')[0] + '.pt')
         write_processed(todo_path, video_path)
-    except Exception as err:
-        print (err)
-        write_errors(todo_path, video_path)
+    # except Exception as err:
+        # print (err)
+        # write_errors(todo_path, video_path)
     
 def process_videos(videos):
     for video_path in tqdm(videos):
-        try:
+        # try:
             process_video(video_path)
-        except Exception as err:
-            print (err)
-            write_errors(todo_path, video_path)
+        # except Exception as err:
+            # print (err)
+            # write_errors(todo_path, video_path)
             
     
 if __name__ == '__main__':
