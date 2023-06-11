@@ -4,7 +4,7 @@
 This repository provides baseline methods for the [REACT 2023 Multimodal Challenge](https://sites.google.com/cam.ac.uk/react2023/home)
 
 ### Baseline paper:
-To be released.
+https://github.com/reactmultimodalchallenge/baseline_react2023/blob/main/REACT2023_Challenge_Baseline_paper.pdf
 
 ### Challenge Description
 Human behavioural responses are stimulated by their environment (or context), and people will inductively process the stimulus and modify their interactions to produce an appropriate response. When facing the same stimulus, different facial reactions could be triggered across not only different subjects but also the same subjects under different contexts. The Multimodal Multiple Appropriate Facial Reaction Generation Challenge (REACT 2023) is a satellite event of ACM MM 2023, (Ottawa, Canada, October 2023), which aims at comparison of multimedia processing and machine learning methods for automatic human facial reaction generation under different dyadic interaction scenarios. The goal of the Challenge is to provide the first benchmark test set for multimodal information processing and to bring together the audio, visual and audio-visual affective computing communities, to compare the relative merits of the approaches to automatic appropriate facial reaction generation under well-defined conditions. 
@@ -144,22 +144,45 @@ Then, we use a 3D-to-2D tool [PIRender](https://github.com/RenYurui/PIRender) to
 <details><summary> <b> Training </b>  </summary>
 <p>
  
-- Running the following shell can start training:
+ <b>Trans-VAE</b>
+- Running the following shell can start training Trans-VAE baseline:
  ```shell
- python train.py --batch-size 8  --gpu-ids 0  -lr 0.00002  -e 50  -j 12  --outdir results/train_offline
+ python train.py --batch-size 4  --gpu-ids 0  -lr 0.00001  --kl-p 0.00001 -e 50  -j 12  --outdir results/train_offline 
  ```
  &nbsp; or 
  
   ```shell
- python train.py --batch-size 8  --gpu-ids 0  -lr 0.00002  -e 50  -j 12  --online --outdir results/train_online
+ python train.py --batch-size 4  --gpu-ids 0  -lr 0.00001  --kl-p 0.00001 -e 50  -j 12  --window-size 16 --outdir results/train_offline 
  ```
+ 
+ <b>BeLFusion</b>
+ - First train the variational autoencoder (VAE):
+```shell
+python train_belfusion.py config=config/1_belfusion_vae.yaml name=All_VAEv2_W50
+```
+ 
+ - Once finished, you will be able to train the offline/online variants of BeLFusion with the desired value for k:
+```shell
+python train_belfusion.py config=config/2_belfusion_ldm.yaml name=<NAME> arch.args.k=<INT (1 or 10)> arch.args.online=<BOOL>
+```
+
  
 </p>
 </details>
 
+<details><summary> <b> Pretrained weights </b>  </summary>
+ If you would rather skip training, download the following checkpoints and put them inside the folder './results'.
+<p>
+ 
+ <b>Trans-VAE</b>: [download](https://drive.google.com/drive/folders/1tyLQnQj1e2SMArBkc3gHDZVHwSr_GEod?usp=share_link)
+ 
+ <b>BeLFusion</b>: [download](https://ubarcelona-my.sharepoint.com/:f:/g/personal/germanbarquero_ub_edu/EvF9K27g_DFPp2MS_8OqkmwBYGzUKs7J3QmkidbRLVSt6Q?e=WCJ2JU)
+ 
+</details>
 
 <details><summary> <b> Validation </b>  </summary>
 <p>
+ Follow this to evaluate Trans-VAE or BeLFusion after training, or downloading the pretrained weights.
  
 - Before validation, run the following script to get the martix (defining appropriate neighbours in val set):
  ```shell
@@ -193,6 +216,7 @@ python -m pytorch_fid  ./results/val_offline/fid/real  ./results/val_offline/fid
 
 <details><summary> <b> Test </b>  </summary>
 <p>
+ Follow this to evaluate Trans-VAE or BeLFusion after training, or downloading the pretrained weights.
  
 - Before testing, run the following script to get the martix (defining appropriate neighbours in test set):
  ```shell
@@ -212,6 +236,7 @@ python evaluate.py  --resume ./results/train_offline/best_checkpoint.pth  --gpu-
 ```shell
 python evaluate.py  --resume ./results/train_online/best_checkpoint.pth  --gpu-ids 1  --online --outdir results/test_online --split test
 ```
+
  
 - For computing FID (FRRea), run the following script:
 
@@ -220,6 +245,8 @@ python -m pytorch_fid  ./results/test_offline/fid/real  ./results/test_offline/f
 ```
 </p>
 </details>
+
+
 
 <details><summary> <b> Other baselines </b>  </summary>
 <p>
@@ -236,53 +263,52 @@ python -m pytorch_fid  ./results/test_offline/fid/real  ./results/test_offline/f
 
 ## 🖊️ Citation
 
-```BibTeX
-@misc{song2023multiple,
-  title={Multiple Appropriate Facial Reaction Generation in Dyadic Interaction Settings: What, Why and How?},
-  author={Song, Siyang and Spitale, Micol and Luo, Yiming and Bal, Batuhan and Gunes, Hatice},
-  journal={arXiv e-prints},
-  pages={arXiv--2302},
-  year={2023}
-}
+### Submissions should cite the following papers:
+
+#### Theory paper and baseline paper:
+
+[1] Song, S., Spitale, M., Luo, Y., Bal, B., and Gunes, H. "Multiple Appropriate Facial Reaction Generation in Dyadic Interaction Settings: What, Why and How?." arXiv preprint arXiv:2302.06514 (2023).
+
+[2] Song, S., Spitale, M., Luo, C., Barquero, G., Palmero, C., Escalera, S., Valstar, M., Baur, T., Ringeval, F.,  André, E., and Gunes, H. "REACT2023: the first Multi-modal Multiple Appropriate Facial Reaction Generation Challenge" (2023)
+
+#### Dataset papers:
+
+[3] Palmero, C., Selva, J., Smeureanu, S., Junior, J., Jacques, C. S., Clapés, A., ... & Escalera, S. (2021). Context-aware personality inference in dyadic scenarios: Introducing the udiva dataset. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (pp. 1-12).
+
+[4] Ringeval, F., Sonderegger, A., Sauer, J., & Lalanne, D. (2013, April). Introducing the RECOLA multimodal corpus of remote collaborative and affective interactions. In 2013 10th IEEE international conference and workshops on automatic face and gesture recognition (FG) (pp. 1-8). IEEE.
+
+[5] Cafaro, A., Wagner, J., Baur, T., Dermouche, S., Torres Torres, M., Pelachaud, C., ... & Valstar, M. (2017, November). The NoXi database: multimodal recordings of mediated novice-expert interactions. In Proceedings of the 19th ACM International Conference on Multimodal Interaction (pp. 350-359).
+
+#### Annotation, basic feature extraction tools and baselines:
+
+[6] Song, Siyang, Yuxin Song, Cheng Luo, Zhiyuan Song, Selim Kuzucu, Xi Jia, Zhijiang Guo, Weicheng Xie, Linlin Shen, and Hatice Gunes. "GRATIS: Deep Learning Graph Representation with Task-specific Topology and Multi-dimensional Edge Features." arXiv preprint arXiv:2211.12482 (2022).
+
+[7] Luo, Cheng, Siyang Song, Weicheng Xie, Linlin Shen, and Hatice Gunes. (2022, July) "Learning multi-dimensional edge feature-based au relation graph for facial action unit recognition." Proceedings of the Thirty-First International Joint Conference on Artificial Intelligence (pp. 1239-1246).
+
+[8] Toisoul, Antoine, Jean Kossaifi, Adrian Bulat, Georgios Tzimiropoulos, and Maja Pantic. "Estimation of continuous valence and arousal levels from faces in naturalistic conditions." Nature Machine Intelligence 3, no. 1 (2021): 42-50.
+
+[9] Eyben, Florian, Martin Wöllmer, and Björn Schuller. "Opensmile: the munich versatile and fast open-source audio feature extractor." In Proceedings of the 18th ACM international conference on Multimedia, pp. 1459-1462. 2010.
+
+[10] Barquero, German, Sergio Escalera, and Cristina Palmero. "BeLFusion: Latent Diffusion for Behavior-Driven Human Motion Prediction." arXiv preprint arXiv:2211.14304 (2022). 
 
 
-@inproceedings{palmero2021context,
-  title={Context-aware personality inference in dyadic scenarios: Introducing the udiva dataset},
-  author={Palmero, Cristina and Selva, Javier and Smeureanu, Sorina and Junior, Julio and Jacques, CS and Clap{\'e}s, Albert and Mosegu{\'\i}, Alexa and Zhang, Zejian and Gallardo, David and Guilera, Georgina and others},
-  booktitle={Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision},
-  pages={1--12},
-  year={2021}
-}
+### Submissions are encouraged to cite previous facial reaction generation papers:
 
-@inproceedings{ringeval2013introducing,
-  title={Introducing the RECOLA multimodal corpus of remote collaborative and affective interactions},
-  author={Ringeval, Fabien and Sonderegger, Andreas and Sauer, Juergen and Lalanne, Denis},
-  booktitle={2013 10th IEEE international conference and workshops on automatic face and gesture recognition (FG)},
-  pages={1--8},
-  year={2013},
-  organization={IEEE}
-}
+[1] Huang, Yuchi, and Saad M. Khan. "Dyadgan: Generating facial expressions in dyadic interactions." In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition Workshops, pp. 11-18. 2017.
 
-@inproceedings{cafaro2017noxi,
-  title={The NoXi database: multimodal recordings of mediated novice-expert interactions},
-  author={Cafaro, Angelo and Wagner, Johannes and Baur, Tobias and Dermouche, Soumia and Torres Torres, Mercedes and Pelachaud, Catherine and Andr{\'e}, Elisabeth and Valstar, Michel},
-  booktitle={Proceedings of the 19th ACM International Conference on Multimodal Interaction},
-  pages={350--359},
-  year={2017}
-}
+[2] Huang, Yuchi, and Saad Khan. "A generative approach for dynamically varying photorealistic facial expressions in human-agent interactions." In Proceedings of the 20th ACM International Conference on Multimodal Interaction, pp. 437-445. 2018.
 
-```
+[3] Shao, Zilong, Siyang Song, Shashank Jaiswal, Linlin Shen, Michel Valstar, and Hatice Gunes. "Personality recognition by modelling person-specific cognitive processes using graph representation." In proceedings of the 29th ACM international conference on multimedia, pp. 357-366. 2021.
 
-If you use or compare to the diffusion-based baseline, please cite the following paper too:
+[4] Song, Siyang, Zilong Shao, Shashank Jaiswal, Linlin Shen, Michel Valstar, and Hatice Gunes. "Learning Person-specific Cognition from Facial Reactions for Automatic Personality Recognition." IEEE Transactions on Affective Computing (2022).
 
-```BibTeX
-@article{barquero2022belfusion,
-  title={BeLFusion: Latent Diffusion for Behavior-Driven Human Motion Prediction},
-  author={Barquero, German and Escalera, Sergio and Palmero, Cristina},
-  journal={arXiv preprint arXiv:2211.14304},
-  year={2022}
-}
-```
+[5] Ng, Evonne, Hanbyul Joo, Liwen Hu, Hao Li, Trevor Darrell, Angjoo Kanazawa, and Shiry Ginosar. "Learning to listen: Modeling non-deterministic dyadic facial motion." In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 20395-20405. 2022.
+
+[6] Zhou, Mohan, Yalong Bai, Wei Zhang, Ting Yao, Tiejun Zhao, and Tao Mei. "Responsive listening head generation: a benchmark dataset and baseline." In Computer Vision–ECCV 2022: 17th European Conference, Tel Aviv, Israel, October 23–27, 2022, Proceedings, Part XXXVIII, pp. 124-142. Cham: Springer Nature Switzerland, 2022.
+
+[7] Luo, Cheng, Siyang Song, Weicheng Xie, Micol Spitale, Linlin Shen, and Hatice Gunes. "ReactFace: Multiple Appropriate Facial Reaction Generation in Dyadic Interactions." arXiv preprint arXiv:2305.15748 (2023).
+
+[8] Xu, Tong, Micol Spitale, Hao Tang, Lu Liu, Hatice Gunes, and Siyang Song. "Reversible Graph Neural Network-based Reaction Distribution Learning for Multiple Appropriate Facial Reactions Generation." arXiv preprint arXiv:2305.15270 (2023).
 
 ## 🤝 Acknowledgement
 Thanks to the open source of the following projects:
