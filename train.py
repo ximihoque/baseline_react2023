@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import torch
+torch.set_num_threads(1)
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import torch.optim as optim
@@ -59,7 +60,7 @@ def train(args, model, train_loader, optimizer, criterion):
 
     model.train()
     print ('Before enumeration')
-    for batch_idx, (speaker_video_clip, speaker_audio_clip, _, _, _, _, listener_emotion, listener_3dmm, _) in enumerate(tqdm(train_loader)):
+    for batch_idx, (speaker_video_clip, _, speaker_audio_clip, _, _, _, _, listener_emotion, listener_3dmm, _) in enumerate(tqdm(train_loader)):
         # print ("Batch: ", batch_idx)
         if torch.cuda.is_available():
             speaker_video_clip, speaker_audio_clip,  listener_emotion, listener_3dmm = \
@@ -95,7 +96,7 @@ def val(args, model, val_loader, criterion, render, epoch):
     kld_losses = AverageMeter()
     model.eval()
     model.reset_window_size(8)
-    for batch_idx, (speaker_video_clip, speaker_audio_clip, _, _, _, _, listener_emotion, listener_3dmm, listener_references) in enumerate(tqdm(val_loader)):
+    for batch_idx, (speaker_video_clip, speaker_video_clip_orig, speaker_audio_clip, _, _, _, _, listener_emotion, listener_3dmm, listener_references) in enumerate(tqdm(val_loader)):
         if torch.cuda.is_available():
             speaker_video_clip, speaker_audio_clip, listener_emotion, listener_3dmm, listener_references = \
                 speaker_video_clip.cuda(), speaker_audio_clip.cuda(), listener_emotion.cuda(), listener_3dmm.cuda(), listener_references.cuda()
@@ -111,6 +112,7 @@ def val(args, model, val_loader, criterion, render, epoch):
 
 
             if args.render:
+                print ('rendering...')
                 val_path = os.path.join(args.outdir, 'results_videos', 'val')
                 if not os.path.exists(val_path):
                     os.makedirs(val_path)
@@ -118,7 +120,7 @@ def val(args, model, val_loader, criterion, render, epoch):
                 if (batch_idx % 50) == 0:
                     for bs in range(B):
                         render.rendering(val_path, "e{}_b{}_ind{}".format(str(epoch + 1), str(batch_idx + 1), str(bs + 1)),
-                                listener_3dmm_out[bs], speaker_video_clip[bs], listener_references[bs])
+                                listener_3dmm_out[bs], speaker_video_clip_orig[bs], listener_references[bs])
 
 
     model.reset_window_size(args.window_size)
@@ -131,9 +133,9 @@ def main(args):
     lowest_val_loss = 10000
     
     # train dataloader
-    train_loader = get_dataloader(args, "data/train.csv", load_audio=True, load_video_s=True, load_emotion_l=True, load_3dmm_l=True, use_raw_audio=args.use_hubert)
+    train_loader = get_dataloader(args, "data/train.csv", load_audio=True, load_video_s=True, load_emotion_l=True, load_3dmm_l=True, use_raw_audio=args.use_hubert, mode='train')
     # val dataloader
-    val_loader = get_dataloader(args, "data/val.csv", load_audio=True, load_video_s=True, load_emotion_l=True, load_3dmm_l=True, load_ref=True, use_raw_audio=args.use_hubert)
+    val_loader = get_dataloader(args, "data/val.csv", load_audio=True, load_video_s=True, load_emotion_l=True, load_3dmm_l=True, load_ref=True, use_raw_audio=args.use_hubert, mode='val')
     
     model = TransformerVAE(img_size = args.img_size, audio_dim = args.audio_dim,  output_3dmm_dim = args._3dmm_dim, output_emotion_dim = args.emotion_dim, feature_dim = args.feature_dim, 
     seq_len = args.seq_len, max_seq_len=args.max_seq_len, online = args.online, window_size = args.window_size, use_hubert=args.use_hubert, device = args.device)
@@ -187,8 +189,10 @@ def main(args):
 
 
 if __name__=="__main__":
+    torch.multiprocessing.set_start_method('spawn')
+    
     args = parse_arg()
-    os.environ["NUMEXPR_MAX_THREADS"] = '16'
+    # os.environ["NUMEXPR_MAX_THREADS"] = '16'
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_ids
     main(args)
 

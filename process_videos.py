@@ -57,7 +57,7 @@ def extract_video_features(video_path, img_transform, clip_length):
     while fvs.more():
 
         frame = fvs.read()
-        print ("#Frame: {}".format(cnt), end='\r')
+#         print ("#Frame: {}".format(cnt), end='\r')
         cnt +=1 
         if frame is not None:
             img_arr = frame[:, :, ::-1].transpose(2, 1, 0).astype(np.float32).copy()
@@ -115,21 +115,21 @@ def write_errors(todo_path, fname):
         f.write('\n')
 
 def process_video(video_path):
-    # try:
+    try:
         arr = extract_video_features(video_path, transform, CLIP_LENGTH)
         torch.save(arr, video_path.split('.mp4')[0] + '.pt')
         write_processed(todo_path, video_path)
-    # except Exception as err:
-        # print (err)
-        # write_errors(todo_path, video_path)
+    except Exception as err:
+        print (err)
+        write_errors(todo_path, video_path)
     
 def process_videos(videos):
     for video_path in tqdm(videos):
-        # try:
+        try:
             process_video(video_path)
-        # except Exception as err:
-            # print (err)
-            # write_errors(todo_path, video_path)
+        except Exception as err:
+            print (err)
+            write_errors(todo_path, video_path)
             
     
 if __name__ == '__main__':

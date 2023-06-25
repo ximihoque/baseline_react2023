@@ -3,6 +3,14 @@ import numpy  as np
 import glob
 from tqdm import tqdm
 import sys
+from marlin_pytorch import Marlin
+import torch
+from torchvision import transforms
+center = transforms.CenterCrop(224)
+
+def load_model(feature_type):
+    model = Marlin.from_file(f"marlin_vit_{feature_type}_ytf", f"/home/surbhi/ximi/marlin_models/marlin_vit_{feature_type}_ytf.encoder.pt")
+    return model
 
 def read_todo(todo_path):
     """Reads TODO file to process videos
@@ -38,6 +46,23 @@ def write_errors(todo_path, fname):
         f.write(fname)
         f.write('\n')
 
+model = load_model('large')
+model = model.cuda()
+
+def extract_marlin_features(tensor):
+    tensor = center(tensor)
+    arr = tensor.reshape(-1, 3, 224, 224)
+    arr = arr.unfold(0, 16, 8)
+    bs = 64
+    features = []
+    for i in range(0, arr.size(0), bs):
+#         print (i)
+        batch = arr[i: i+bs]
+        with torch.no_grad():
+            features.append(model.extract_features(batch.permute(0, 1, 4, 2, 3)).cpu())
+        torch.cuda.empty_cache()
+    return torch.cat(features).mean(0).cuda()
+
 if __name__ == '__main__':
     todo_path = sys.argv[1]
     todo = files_to_process(todo_path)
@@ -45,11 +70,16 @@ if __name__ == '__main__':
 
     smaller_clips = []
     for f in tqdm(todo):
-        arr = torch.load(f)
-        if arr.shape[0] != 750:
-            write_errors(todo_path, f)
+        try:
+            arr = torch.load(f).reshape(-1, 3, 256, 256)
+            arr = extract_marlin_features(arr)
 
-        arr.to('cuda')
-        torch.save(arr, f)
-        write_processed(todo_path, f)
+#             fname = f.split('.pt')[0] + '_marlin.pt'
+#             print (fname)
+            torch.save(arr, f)
+            write_processed(todo_path, f)
+        except Exception as err:
+            print (f)
+            print (err)
+            write_errors(todo_path, f)
 

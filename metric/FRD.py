@@ -53,12 +53,15 @@ def compute_FRD(args, pred, listener_em, val_test='val'):
             speaker_neighbour_index_len = len(speaker_neighbour_index)
             dwt_list = []
             for n_index in range(speaker_neighbour_index_len):
-                emotion =  listener_em[speaker_neighbour_index[n_index]]
-                res = 0
-                for st, ed, weight in [(0, 15, 1 / 15), (15, 17, 1), (17, 25, 1 / 8)]:
-                    res += weight * dtw(pred[k, i].numpy().astype(np.float32)[:, st: ed],
-                                        emotion.numpy().astype(np.float32)[:, st: ed])
-                dwt_list.append(res)
+                try:
+                    emotion =  listener_em[speaker_neighbour_index[n_index]]
+                    res = 0
+                    for st, ed, weight in [(0, 15, 1 / 15), (15, 17, 1), (17, 25, 1 / 8)]:
+                        res += weight * dtw(pred[k, i].numpy().astype(np.float32)[:, st: ed],
+                                            emotion.numpy().astype(np.float32)[:, st: ed])
+                    dwt_list.append(res)
+                except:
+                    pass
             min_dwt = min(dwt_list)
             FRD_list.append(min_dwt)
         all_FRD_list.append(np.mean(FRD_list))

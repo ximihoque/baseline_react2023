@@ -1,6 +1,8 @@
 import os
 import numpy as np
 import torch
+torch.set_num_threads(1)
+
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import torch.optim as optim
@@ -22,18 +24,20 @@ from functools import partial
 def parse_arg():
     parser = argparse.ArgumentParser(description='PyTorch Training')
     # Param
-    parser.add_argument('--dataset-path', default="./data", type=str, help="dataset path")
+    parser.add_argument('--dataset-path', default="../data", type=str, help="dataset path")
     parser.add_argument('--split', type=str, help="split of dataset", choices=["val", "test"], required=True)
     parser.add_argument('--resume', default="", type=str, help="checkpoint path")
     parser.add_argument('-b', '--batch-size', default=4, type=int, metavar='N', help='mini-batch size (default: 4)')
-    parser.add_argument('-j', '--num_workers', default=8, type=int, metavar='N',
+    parser.add_argument('-j', '--num_workers', default=4, type=int, metavar='N',
                         help='number of data loading workers (default: 8)')
     parser.add_argument('--img-size', default=256, type=int, help="size of train/test image data")
     parser.add_argument('--crop-size', default=224, type=int, help="crop size of train/test image data")
-    parser.add_argument('-max-seq-len', default=751, type=int, help="max length of clip")
+    parser.add_argument('--max-seq-len', default=751, type=int, help="max length of clip")
+    parser.add_argument('--seq-len', default=750, type=int, help="length of clip")
     parser.add_argument('--clip-length', default=751, type=int, help="len of video clip")
     parser.add_argument('--window-size', default=8, type=int, help="prediction window-size for online mode")
     parser.add_argument('--feature-dim', default=128, type=int, help="feature dim of model")
+    parser.add_argument('--use-hubert', default=False, type=bool, help="Use HuBERT model")
     parser.add_argument('--audio-dim', default=78, type=int, help="feature dim of audio")
     parser.add_argument('--_3dmm-dim', default=58, type=int, help="feature dim of 3dmm")
     parser.add_argument('--emotion-dim', default=25, type=int, help="feature dim of emotion")
@@ -64,15 +68,16 @@ def val(args, model, val_loader, criterion, render, binarize=False):
     speaker_emotion_list = []
     all_listener_emotion_pred_list = []
 
-    for batch_idx, (speaker_video_clip, speaker_audio_clip, speaker_emotion, _, listener_video_clip, _, listener_emotion, listener_3dmm, listener_references) in enumerate(tqdm(val_loader)):
+    for batch_idx, (speaker_video_clip, speaker_video_clip_orig, speaker_audio_clip, speaker_emotion, _, listener_video_clip, _, listener_emotion, listener_3dmm, listener_references) in enumerate(tqdm(val_loader)):
         if torch.cuda.is_available():
             if len(speaker_video_clip.shape) != 1: # if loaded
-                speaker_video_clip, speaker_audio_clip = speaker_video_clip[:,:750].cuda(), speaker_audio_clip[:,:750].cuda()
+                speaker_video_clip = speaker_video_clip.cuda()
+                speaker_video_clip_orig, speaker_audio_clip = speaker_video_clip_orig[:,:750].cuda(), speaker_audio_clip.cuda()
             speaker_emotion, listener_emotion, listener_3dmm, listener_references = speaker_emotion[:,:750].cuda(), listener_emotion[:,:750].cuda(), listener_3dmm[:,:750].cuda(), listener_references[:,:750].cuda()
         with torch.no_grad():
             prediction = model(speaker_video=speaker_video_clip, speaker_audio=speaker_audio_clip, speaker_emotion=speaker_emotion, listener_emotion=listener_emotion)
-
-            if isinstance(prediction, list): # Trans VAE
+            
+            if isinstance(prediction, list) or isinstance(prediction, tuple): # Trans VAE
                 listener_3dmm_out, listener_emotion_out, distribution = prediction
                 loss, rec_loss, kld_loss = criterion(listener_emotion, listener_3dmm, listener_emotion_out, listener_3dmm_out, distribution)
 
@@ -89,10 +94,11 @@ def val(args, model, val_loader, criterion, render, binarize=False):
             if binarize:
                 listener_emotion_out[:, :, :15] = torch.round(listener_emotion_out[:, :, :15])
             B = speaker_video_clip.shape[0]
+            # print ('B: ', B)
             if (batch_idx % 25) == 0:
                 for bs in range(B):
-                    render.rendering_for_fid(out_dir, "{}_b{}_ind{}".format(args.split, str(batch_idx + 1), str(bs + 1)),
-                            listener_3dmm_out[bs], speaker_video_clip[bs], listener_references[bs], listener_video_clip[bs,:750])
+                        render.rendering_for_fid(out_dir, "{}_b{}_ind{}".format(args.split, str(batch_idx + 1), str(bs + 1)),
+                                listener_3dmm_out[bs], speaker_video_clip_orig[bs], listener_references[bs], listener_video_clip[bs,:750])
             listener_emotion_pred_list.append(listener_emotion_out.cpu())
             listener_emotion_gt_list.append(listener_emotion.cpu())
             speaker_emotion_list.append(speaker_emotion.cpu())
@@ -103,18 +109,18 @@ def val(args, model, val_loader, criterion, render, binarize=False):
     all_listener_emotion_pred_list.append(listener_emotion_pred.unsqueeze(1))
 
     print("-----------------Repeat 9 times-----------------")
-    for i in range(9):
+    for i in range(3):
         listener_emotion_pred_list = []
         for batch_idx, (
-        speaker_video_clip, speaker_audio_clip, speaker_emotion, _, _, _, listener_emotion, _, _) in enumerate(tqdm(val_loader)):
+        speaker_video_clip, _, speaker_audio_clip, speaker_emotion, _, _, _, listener_emotion, _, _) in enumerate(tqdm(val_loader)):
             if torch.cuda.is_available():
                 if len(speaker_video_clip.shape) != 1: # if loaded
                     speaker_video_clip, speaker_audio_clip = \
-                        speaker_video_clip[:,:750].cuda(), speaker_audio_clip[:,:750].cuda()
+                        speaker_video_clip.cuda(), speaker_audio_clip.cuda()
                 speaker_emotion, listener_emotion = speaker_emotion[:,:750].cuda(), listener_emotion[:,:750].cuda()
             with torch.no_grad():
                 prediction = model(speaker_video=speaker_video_clip, speaker_audio=speaker_audio_clip, speaker_emotion=speaker_emotion, listener_emotion=listener_emotion)
-                if isinstance(prediction, list): # Trans VAE
+                if isinstance(prediction, list) or isinstance(prediction, tuple): # Trans VAE
                     listener_emotion_out = prediction[1]
                 else: # BeLFusion
                     listener_emotion_out = prediction["prediction"]
@@ -129,17 +135,17 @@ def val(args, model, val_loader, criterion, render, binarize=False):
     all_listener_emotion_pred = torch.cat(all_listener_emotion_pred_list, dim=1)
 
     print("-----------------Evaluating Metric-----------------")
-
+    torch.cuda.empty_cache()
     p = args.threads
     
     # If you have problems running function compute_TLCC_mp, please replace this function with function compute_TLCC
-    TLCC = compute_TLCC_mp(all_listener_emotion_pred, speaker_emotion_gt, p=p)
+    TLCC = compute_TLCC(all_listener_emotion_pred, speaker_emotion_gt)
     
     # If you have problems running function compute_FRC_mp, please replace this function with function compute_FRC
-    FRC = compute_FRC_mp(args, all_listener_emotion_pred, listener_emotion_gt, val_test=args.split, p=p)
+    FRC = compute_FRC(args, all_listener_emotion_pred, listener_emotion_gt, val_test=args.split)
 
     # If you have problems running function compute_FRD_mp, please replace this function with function compute_FRD
-    FRD = compute_FRD_mp(args, all_listener_emotion_pred, listener_emotion_gt, val_test=args.split, p=p)
+    FRD = compute_FRD(args, all_listener_emotion_pred, listener_emotion_gt, val_test=args.split)
 
     FRDvs = compute_FRDvs(all_listener_emotion_pred)
     FRVar  = compute_FRVar(all_listener_emotion_pred)
@@ -153,8 +159,13 @@ def main(args):
     checkpoint_path = args.resume
     config_path = os.path.join(os.path.dirname(checkpoint_path), "config.yaml")
     if not os.path.exists(config_path): # args-based loading --> Trans-VAE by default
-        val_loader = get_dataloader(args, args.split, load_audio=True, load_video_s=True, load_video_l=True, load_emotion_s=True, load_emotion_l=True, load_3dmm_l=True, load_ref=True)
-        model = TransformerVAE(img_size = args.img_size, audio_dim = args.audio_dim, output_emotion_dim = args.emotion_dim, output_3dmm_dim = args._3dmm_dim, feature_dim = args.feature_dim, seq_len = args.max_seq_len, online = args.online, window_size = args.window_size, device = args.device)
+        if args.split == 'val':
+            # TODO: update this path
+            split = 'data/val.csv'
+        else:
+            split = 'data/test.csv'
+        val_loader = get_dataloader(args, split, load_audio=True, load_video_s=True, load_video_l=True, load_emotion_s=True, load_emotion_l=True, load_3dmm_l=True, load_ref=True, use_raw_audio=args.use_hubert, mode='val')
+        model = TransformerVAE(img_size = args.img_size, audio_dim = args.audio_dim, output_emotion_dim = args.emotion_dim, output_3dmm_dim = args._3dmm_dim, feature_dim = args.feature_dim, seq_len = args.seq_len, online = args.online, window_size = args.window_size, device = args.device, use_hubert=args.use_hubert)
         criterion = VAELoss(args.kl_p)
     else: # config-based loading --> BeLFusion
         cfg = load_config(config_path)
@@ -172,6 +183,7 @@ def main(args):
         model.load_state_dict(state_dict)
 
     if torch.cuda.is_available():
+        print ('GPUUUU')
         model = model.cuda()
         render = Render('cuda')
     else:
@@ -188,6 +200,8 @@ def main(args):
 
 if __name__=="__main__":
     args = parse_arg()
+    torch.multiprocessing.set_start_method('spawn')
+
     os.environ["NUMEXPR_MAX_THREADS"] = '16'
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_ids
     main(args)

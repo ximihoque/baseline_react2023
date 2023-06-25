@@ -6,32 +6,32 @@ import math
 from .BasicBlock import ConvBlock, PositionalEncoding, lengths_to_mask, init_biased_mask
 from .HuBert import HuBERTEncoder
 
-class VideoEncoder(nn.Module):
-    def __init__(self, img_size=224, feature_dim = 128, device = 'cpu'):
-        super(VideoEncoder, self).__init__()
+# class VideoEncoder(nn.Module):
+#     def __init__(self, img_size=224, feature_dim = 128, device = 'cpu'):
+#         super(VideoEncoder, self).__init__()
 
-        self.img_size = img_size
-        self.feature_dim = feature_dim
+#         self.img_size = img_size
+#         self.feature_dim = feature_dim
 
-        self.Conv3D = ConvBlock(3, feature_dim)
-        self.fc = nn.Linear(feature_dim, feature_dim)
-        self.device = device
+#         self.Conv3D = ConvBlock(3, feature_dim)
+#         self.fc = nn.Linear(feature_dim, feature_dim)
+#         self.device = device
 
 
-    def forward(self, video):
-        """
-        input:
-        speaker_video_frames x: (batch_size, seq_len, 3, img_size, img_size)
+#     def forward(self, video):
+#         """
+#         input:
+#         speaker_video_frames x: (batch_size, seq_len, 3, img_size, img_size)
 
-        output:
-        speaker_temporal_tokens y: (batch_size, seq_len, token_dim)
+#         output:
+#         speaker_temporal_tokens y: (batch_size, seq_len, token_dim)
 
-        """
+#         """
 
-        video_input = video.transpose(1, 2)  # B C T H W
-        token_output = self.Conv3D(video_input).transpose(1,2)
-        token_output = self.fc(token_output) # B T C
-        return  token_output
+#         video_input = video.transpose(1, 2)  # B C T H W
+#         token_output = self.Conv3D(video_input).transpose(1,2)
+#         token_output = self.fc(token_output) # B T C
+#         return  token_output
 
 
 class VAEModel(nn.Module):
@@ -82,7 +82,10 @@ class VAEModel(nn.Module):
         mu = x[0]
         logvar = x[1]
         std = logvar.exp().pow(0.5)
+        # print ('mu', mu.shape)
+        # print ('logvar', logvar.shape)
         dist = torch.distributions.Normal(mu, std)
+        # print ('dist', dist)
         motion_sample = self.sample_from_distribution(dist).to(self.device)
         # motion_sample = self.sample_from_distribution(dist)
 
@@ -135,6 +138,8 @@ class Decoder(nn.Module):
         else:
             TL = TS
         motion_sample, dist = self.vae_model(encoded_feature)
+        # print ('motion sample shape: ', motion_sample.shape)
+        # print ('dist shape: ', dist.shape)
         time_queries = torch.zeros(B, TL, self.feature_dim, device=encoded_feature.get_device())
         time_queries = self.PE(time_queries)
         tgt_mask = self.biased_mask[:, :TL, :TL].clone().detach().to(device=self.device).repeat(B,1,1)
@@ -172,6 +177,14 @@ class Decoder(nn.Module):
     def reset_window_size(self, window_size):
         self.window_size = window_size
 
+class VideoEncoder(nn.Module):
+    def __init__(self, seq_len, feature_dim):
+        super(VideoEncoder, self).__init__()
+
+        self.conv1d = nn.Conv1d(in_channels=23, out_channels=seq_len, kernel_size=3)
+    def forward(self, x):
+        out = self.conv1d(x)
+        return out
 
 class SpeakerBehaviourEncoder(nn.Module):
     def __init__(self, img_size=224, audio_dim = 78, feature_dim = 128, use_hubert=False, seq_len=750, device = 'cpu'):
@@ -182,27 +195,34 @@ class SpeakerBehaviourEncoder(nn.Module):
         self.feature_dim = feature_dim
         self.device = device
         
-        self.video_encoder = VideoEncoder(img_size=img_size, feature_dim=feature_dim, device=device)
+        # self.video_encoder = VideoEncoder(img_size=img_size, feature_dim=feature_dim, device=device)
+        self.video_encoder = VideoEncoder(feature_dim=feature_dim, seq_len=seq_len)
+
         self.use_hubert = use_hubert
         if self.use_hubert:
             print ("Using HuBERT.")
-        self.audio_encoder = HuBERTEncoder(seq_len, self.feature_dim)
+            self.audio_encoder = HuBERTEncoder(seq_len, self.feature_dim)
 
         self.audio_feature_map = nn.Linear(self.audio_dim, self.feature_dim)
         if use_hubert:
             self.audio_feature_map = nn.Linear(1022, self.feature_dim)
 
+        self.video_feature_map = nn.Linear(1022, self.feature_dim)
         self.fusion_layer = nn.Linear(self.feature_dim*2, self.feature_dim)
 
 
     def forward(self, video, audio):
-        video_feature = self.video_encoder(video)
+        video = self.video_encoder(video)
         if self.use_hubert:
+            # print (audio.shape)
             audio = self.audio_encoder(audio)
             # print ('audio shape after hubert: ', audio.shape)
         audio_feature = self.audio_feature_map(audio)
+        video_feature = self.video_feature_map(video)
         # if self.use_hubert:
             # return audio_feature
+        # print ('video feature shape: ', video_feature.shape)
+        # print ('audio feature shape: ', audio_feature.shape)
         speaker_behaviour_feature = self.fusion_layer(torch.cat((video_feature, audio_feature), dim =-1))
         # print ('speaker feature: ', speaker_behaviour_feature.shape)
         return  speaker_behaviour_feature
@@ -223,7 +243,7 @@ class TransformerVAE(nn.Module):
         self.use_hubert = use_hubert
         self.speaker_behaviour_encoder = SpeakerBehaviourEncoder(img_size, audio_dim, feature_dim, use_hubert, seq_len, device)
         self.reaction_decoder = Decoder(output_3dmm_dim = output_3dmm_dim, output_emotion_dim = output_emotion_dim, feature_dim = feature_dim, max_seq_len=max_seq_len, device=device, window_size = self.window_size, online = online)
-        self.fusion = nn.Linear(feature_dim + self.output_3dmm_dim + self.output_emotion_dim, feature_dim)
+        # self.fusion = nn.Linear(feature_dim + self.output_3dmm_dim + self.output_emotion_dim, feature_dim)
 
     def forward(self, speaker_video=None, speaker_audio=None, **kwargs):
 

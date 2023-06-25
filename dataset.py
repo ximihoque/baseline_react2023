@@ -38,6 +38,33 @@ class Transform(object):
         img = transform(img)
         return img
 
+def handle_noxi_emotion(video_path):
+    if 'NoXI' in video_path:
+        if 'Expert_video' in video_path:
+            return video_path.replace('Expert_video', 'P1')
+        if 'Novice_video' in video_path:
+            return video_path.replace('Novice_video', 'P2')
+        
+    else:
+        return video_path
+def handle_recola_emotion(video_path):
+    if 'RECOLA' in video_path:
+        if 'P25' in video_path:
+            return video_path.replace('P25', 'P1')
+        if 'P26' in video_path:
+            return video_path.replace('P26', 'P2')
+        
+        if 'P41' in video_path:
+            return video_path.replace('P41', 'P1')
+        if 'P42' in video_path:
+            return video_path.replace('P42', 'P2')
+        
+        if 'P45' in video_path:
+            return video_path.replace('P45', 'P1')
+        if 'P46' in video_path:
+            return video_path.replace('P46', 'P2')
+    else:
+        return video_path
 
 def pil_loader(path):
     with open(path, 'rb') as f:
@@ -112,9 +139,9 @@ def extract_audio_features(audio_path, fps, n_frames):
 
 class ReactionDataset(data.Dataset):
     """Custom data.Dataset compatible with data.DataLoader."""
-    def __init__(self, root_path, split, img_size=256, crop_size=224, clip_length=751, fps=25,
+    def __init__(self, root_path, split, img_size=256, crop_size=224, clip_length=750, fps=25,
                  load_audio=True, load_video_s=True, load_video_l=True, load_emotion_s=False, load_emotion_l=False,
-                 load_3dmm_s=False, load_3dmm_l=False, load_ref=True, repeat_mirrored=True, use_raw_audio=False):
+                 load_3dmm_s=False, load_3dmm_l=False, load_ref=True, repeat_mirrored=True, use_raw_audio=False, mode='train'):
         """
         Args:
             root_path: (str) Path to the data folder.
@@ -131,13 +158,14 @@ class ReactionDataset(data.Dataset):
             repeat_mirrored: (bool) Whether to extend dataset with mirrored speaker/listener. This is used for val/test.
         """
         self._root_path = root_path
-#         self._img_loader = pil_loader
+        # self._img_loader = pil_loader
         self._clip_length = clip_length
         self._fps = fps
+        self.img_size = img_size
         self._split = split
-        
+        self._mode = mode
         self._data_path = self._root_path
-        
+        # print ('CLIP LEN: ', clip_length)
         # read train.csv/ val.csv
         self._list_path = pd.read_csv(split, header=None, delimiter=',')
         self._list_path = self._list_path.drop(0)
@@ -158,17 +186,20 @@ class ReactionDataset(data.Dataset):
         self._3dmm_path = os.path.join(self._data_path, '3D_FVs')
 
         self.mean_face = torch.FloatTensor(
-            np.load('external/FaceVerse/mean_face.npy').astype(np.float32)).view(1, 1, -1)
+            np.load('external/FaceVerse/mean_face.npy').astype(np.float32)).view(1, -1)
         self.std_face = torch.FloatTensor(
-            np.load('external/FaceVerse/std_face.npy').astype(np.float32)).view(1, 1, -1)
+            np.load('external/FaceVerse/std_face.npy').astype(np.float32)).view(1, -1)
 
         self._transform = Transform(img_size, crop_size)
-        self._transform_3dmm = transforms.Lambda(lambda e: (e - self.mean_face))
+        self._img_loader = pil_loader
+        # center transform crop
+        # self._transform = transforms.CenterCrop(crop_size)
+        # self._transform_3dmm = transforms.Lambda(_lambda_)
 
         speaker_path = list(self._list_path.values[:, 1])
         listener_path = list(self._list_path.values[:, 2])
 
-        if self._split in ["val.csv", "test.csv"] and repeat_mirrored: # training is always mirrored as data augmentation
+        if self._split in ["val.csv", "test.csv"] or repeat_mirrored: # training is always mirrored as data augmentation
             speaker_path_tmp = speaker_path + listener_path
             listener_path_tmp = listener_path + speaker_path
             speaker_path = speaker_path_tmp
@@ -177,28 +208,65 @@ class ReactionDataset(data.Dataset):
         self.data_list = []
         for i, (sp, lp) in enumerate(zip(speaker_path, listener_path)):
 
-            ab_speaker_video_path = os.path.join(self._video_path, sp + '.pt')
+            ab_speaker_video_path = os.path.join(self._video_path, sp + '_marlin.pt')
+            ab_speaker_video_path_dir = os.path.join(self._video_path, sp)
             if self.use_raw_audio:
                 ab_speaker_audio_path = os.path.join(self._audio_path, sp +'.wav')    
             else:
                 ab_speaker_audio_path = os.path.join(self._audio_path, sp +'_audio.npy')
+            
             ab_speaker_emotion_path = os.path.join(self._emotion_path, sp +'.csv')
+            ab_speaker_emotion_path = handle_noxi_emotion(ab_speaker_emotion_path)
+            ab_speaker_emotion_path = handle_recola_emotion(ab_speaker_emotion_path)
+            # ab_speaker_emotion_path  = handle_recola_emotion(ab_speaker_emotion_path)
+            # print (ab_sp)
             ab_speaker_3dmm_path = os.path.join(self._3dmm_path, sp + '.npy')
 
-            ab_listener_video_path =  os.path.join(self._video_path, lp + '.pt')
+            ab_listener_video_path =  os.path.join(self._video_path, lp + '_marlin.pt')
+            ab_listener_video_path_dir = os.path.join(self._video_path, lp)
             if self.use_raw_audio:
                 ab_listener_audio_path = os.path.join(self._audio_path, lp +'.wav')
             else:
                 ab_listener_audio_path = os.path.join(self._audio_path, lp +'_audio.npy')
             ab_listener_emotion_path = os.path.join(self._emotion_path, lp +'.csv')
-            ab_listener_3dmm_path = os.path.join(self._3dmm_path, lp + '.npy')
+
+            ab_listener_emotion_path = handle_noxi_emotion(ab_listener_emotion_path)
+            ab_listener_emotion_path = handle_recola_emotion(ab_listener_emotion_path)
             
-            if os.path.exists(ab_speaker_video_path) and os.path.exists(ab_speaker_audio_path) and os.path.exists(ab_speaker_emotion_path) and os.path.exists(ab_listener_3dmm_path) and os.path.exists(ab_listener_emotion_path):
-                
-                self.data_list.append({'speaker_video_path':ab_speaker_video_path, 'speaker_audio_path':ab_speaker_audio_path, 'speaker_emotion_path':ab_speaker_emotion_path, 'speaker_3dmm_path':ab_speaker_3dmm_path, 'listener_video_path': ab_listener_video_path, 'listener_audio_path':ab_listener_audio_path, 'listener_emotion_path':ab_listener_emotion_path, 'listener_3dmm_path':ab_listener_3dmm_path})
-                
+            ab_listener_3dmm_path = os.path.join(self._3dmm_path, lp + '.npy')
+            # ab_listener_3dmm_path = handle_recola_emotion(ab_listener_3dmm_path)
+            
+            # print (ab_listener_3dmm_path)
+            _json = {
+                    'speaker_video_path':ab_speaker_video_path, 
+                    'speaker_video_dir': ab_speaker_video_path_dir,
+                    'speaker_audio_path':ab_speaker_audio_path, 
+                    'speaker_emotion_path':ab_speaker_emotion_path, 
+                    'speaker_3dmm_path':ab_speaker_3dmm_path, 
+                    'listener_video_path': ab_listener_video_path, 
+                    'listener_video_dir': ab_listener_video_path_dir,
+                    'listener_audio_path':ab_listener_audio_path, 
+                    'listener_emotion_path':ab_listener_emotion_path, 
+                    'listener_3dmm_path':ab_listener_3dmm_path
+                    }
+            # print (_json)
+            if os.path.exists(ab_speaker_video_path):
+                if os.path.exists(ab_speaker_audio_path):
+                    if os.path.exists(ab_listener_3dmm_path):
+                        if os.path.exists(ab_listener_emotion_path):
+                            if os.path.exists(ab_speaker_emotion_path):
+                                self.data_list.append(_json)
+                            else:
+                                print ("Escaping: {}, Reason: {} MISSING".format(sp, ab_speaker_emotion_path))
+                        else:
+                            print ("Escaping: {}, Reason: {} MISSING".format(sp, ab_listener_emotion_path))
+                    else:
+                        print ("Escaping: {}, Reason: {} MISSING".format(sp, ab_listener_3dmm_path))
+                else:
+                    print ("Escaping: {}, Reason: {} MISSING".format(sp, ab_speaker_audio_path))
             else:
-                print ("Escaping: ", sp)
+                print ("Escaping: {}, Reason: {} MISSING".format(sp, ab_speaker_video_path))
+                
 
         self._len =  len(self.data_list)
 
@@ -209,7 +277,7 @@ class ReactionDataset(data.Dataset):
 
         # ========================= Data Augmentation ==========================
         changed_sign = 0
-        if self._split == 'train':  # only done at training time
+        if self._split == 'train.csv':  # only done at training time
             changed_sign = random.randint(0, 1)
 
         speaker_prefix = 'speaker' if changed_sign == 0 else 'listener'
@@ -218,46 +286,68 @@ class ReactionDataset(data.Dataset):
         # ========================= Load Speaker & Listener video clip ==========================
         speaker_video_path = data[f'{speaker_prefix}_video_path']
         listener_video_path = data[f'{listener_prefix}_video_path']
+        speaker_video_dir = data[f'{speaker_prefix}_video_dir']
+        listener_video_dir = data[f'{listener_prefix}_video_dir']
 
-#         if self.load_video_s or self.load_video_l or self.load_ref: # otherwise, no need to compute these image paths
-#             img_paths = os.listdir(speaker_video_path)
-#             total_length = len(img_paths)
-#             img_paths = sorted(img_paths, key=cmp_to_key(lambda a, b: int(a[:-4]) - int(b[:-4])))
-#             cp = random.randint(0, total_length - 1 - self._clip_length) if self._clip_length < total_length else 0
-#             img_paths = img_paths[cp: cp + self._clip_length]
+        if self._mode == 'val':
+            if self.load_video_s or self.load_video_l or self.load_ref: # otherwise, no need to compute these image paths
+                img_paths = os.listdir(speaker_video_dir)
+                total_length = len(img_paths)
+                img_paths = sorted(img_paths, key=cmp_to_key(lambda a, b: int(a[:-4]) - int(b[:-4])))
+                cp = 0
+                img_paths = img_paths[cp: cp + self._clip_length]
 
         speaker_video_clip = 0
+        speaker_video_clip_orig = 0
+        cp = 0
         if self.load_video_s:
-            speaker_video_clip = torch.load(speaker_video_path)
-            total_length = speaker_video_clip.shape[0]
-            cp = random.randint(0, total_length - 1 - self._clip_length) if self._clip_length < total_length else 0
-            speaker_video_clip = speaker_video_clip[cp:cp + self._clip_length]
-#             clip = []
-#             for img_path in img_paths:
-#                 img = self._img_loader(os.path.join(speaker_video_path, img_path))
-#                 img = self._transform(img)
-#                 clip.append(img.unsqueeze(0))
-#             speaker_video_clip = torch.cat(clip, dim=0)
-#             speaker_video_clip = speaker_video_clip[cp:cp + self._clip_length]
+            try:
+                speaker_video_clip = torch.load(speaker_video_path)
+            except Exception as err:
+                print ("Exception occurred in :", speaker_video_path)
+                return self.__getitem__(index+1)
+
+            if self._mode=='val':
+                # total_length = speaker_video_clip.shape[0]
+                cp = 0
+                clip = []
+                img_paths = sorted(img_paths, key=cmp_to_key(lambda a, b: int(a[:-4]) - int(b[:-4])))
+                for img_path in img_paths:
+                    img = self._img_loader(os.path.join(speaker_video_dir, img_path))
+                    img = self._transform(img)
+                    clip.append(img.unsqueeze(0))
+                speaker_video_clip_orig = torch.cat(clip, dim=0)
+                speaker_video_clip_orig = speaker_video_clip_orig[cp:cp + self._clip_length]
         
         # listener video clip only needed for val/test
         listener_video_clip = 0
         if self.load_video_l:
-            listener_video_clip = torch.load(listener_video_path)
-#             clip = []
-#             for img_path in img_paths:
-#                 img = self._img_loader(os.path.join(listener_video_path, img_path))
-#                 img = self._transform(img)
-#                 clip.append(img.unsqueeze(0))
-#             listener_video_clip = torch.cat(clip, dim=0)
-#             listener_video_clip = listener_video_clip[cp:cp + self._clip_length]
+            if self._mode == 'train':
+                listener_video_clip = torch.load(listener_video_path)
+            else:
+                img_paths = os.listdir(listener_video_dir)
+                img_paths = sorted(img_paths, key=cmp_to_key(lambda a, b: int(a[:-4]) - int(b[:-4])))
+                cp = 0
+                clip = []
+                for img_path in img_paths:
+                    img = self._img_loader(os.path.join(listener_video_dir, img_path))
+                    img = self._transform(img)
+                    clip.append(img.unsqueeze(0))
+                listener_video_clip = torch.cat(clip, dim=0)
+                listener_video_clip = listener_video_clip[cp:cp + self._clip_length]
 
         # ========================= Load Speaker audio clip (listener audio is NEVER needed) ==========================
         listener_audio_clip, speaker_audio_clip = 0, 0
         if self.load_audio:
             speaker_audio_path = data[f'{listener_prefix}_audio_path']
             if self.use_raw_audio:
-                speaker_audio_clip, sr = torchaudio.load(speaker_audio_path)
+                # print ('using raw audio')
+                try:
+                    speaker_audio_clip, sr = torchaudio.load(speaker_audio_path)
+                except Exception as err:
+                    print ("Exception occurred in :", speaker_audio_path)
+                    return self.__getitem__(index+1)
+
                 speaker_audio_clip = torchaudio.functional.resample(speaker_audio_clip, sr, 16000)
                 speaker_audio_clip, frame_n_samples = sample_audio(speaker_audio_clip, fps=self._fps, src_sr=sr, 
                                                                     target_sr=16000, n_frames=self._clip_length)
@@ -269,7 +359,12 @@ class ReactionDataset(data.Dataset):
                 # print ('spkr file: ', speaker_audio_path)
                 # print ('speaker clip size: ', speaker_audio_clip.shape)
             else:
-                speaker_audio_clip = np.load(speaker_audio_path, allow_pickle=True)
+                try:
+                    speaker_audio_clip = np.load(speaker_audio_path, allow_pickle=True)
+                except Exception as err:
+                    print ("Exception occurred in :", speaker_audio_path)
+                    return self.__getitem__(index+1)
+
 #               speaker_audio_clip = extract_audio_features(speaker_audio_path, self._fps, total_length)
                 speaker_audio_clip = speaker_audio_clip[cp:cp + self._clip_length]
 
@@ -277,6 +372,7 @@ class ReactionDataset(data.Dataset):
         # ========================= Load Speaker & Listener emotion ==========================
         listener_emotion, speaker_emotion = 0, 0
         if self.load_emotion_l:
+            
             listener_emotion_path = data[f'{listener_prefix}_emotion_path']
             listener_emotion = pd.read_csv(listener_emotion_path, header=None, delimiter=',')
             listener_emotion = torch.from_numpy(np.array(listener_emotion.drop(0)).astype(np.float32))[
@@ -284,6 +380,7 @@ class ReactionDataset(data.Dataset):
 
         if self.load_emotion_s:
             speaker_emotion_path = data[f'{speaker_prefix}_emotion_path']
+            speaker_emotion_path = handle_recola_emotion(speaker_emotion_path)
             speaker_emotion = pd.read_csv(speaker_emotion_path, header=None, delimiter=',')
             speaker_emotion = torch.from_numpy(np.array(speaker_emotion.drop(0)).astype(np.float32))[
                                cp: cp + self._clip_length]
@@ -295,37 +392,61 @@ class ReactionDataset(data.Dataset):
         if self.load_3dmm_l:
             listener_3dmm_path = data[f'{listener_prefix}_3dmm_path']
             listener_3dmm = torch.FloatTensor(np.load(listener_3dmm_path)).squeeze()
+            # print ('list org shape: ', listener_3dmm.shape)
             listener_3dmm = listener_3dmm[cp: cp + self._clip_length]
-            listener_3dmm = self._transform_3dmm(listener_3dmm)[0]
+            listener_3dmm = listener_3dmm - self.mean_face
 
         speaker_3dmm = 0
         if self.load_3dmm_s:
             speaker_3dmm_path = data[f'{speaker_prefix}_3dmm_path']
             speaker_3dmm = torch.FloatTensor(np.load(speaker_3dmm_path)).squeeze()
             speaker_3dmm = speaker_3dmm[cp: cp + self._clip_length]
-            speaker_3dmm = self._transform_3dmm(speaker_3dmm)[0]
+            # print ('speaker 3dmm', speaker_3dmm.shape)
+            # print ('mean face: ', self.mean_face.shape)
+            speaker_3dmm = speaker_3dmm - self.mean_face
 
         # ========================= Load Listener Reference ==========================
         listener_reference = 0
         if self.load_ref:
-            listener_reference = torch.load(listener_video_path)[0]
-            
-#             img_paths = os.listdir(listener_video_path)
-#             img_paths = sorted(img_paths, key=cmp_to_key(lambda a, b: int(a[:-4]) - int(b[:-4])))
-#             listener_reference = self._img_loader(os.path.join(listener_video_path, img_paths[0]))
-#             listener_reference = self._transform(listener_reference)
 
-        return speaker_video_clip, speaker_audio_clip, speaker_emotion, speaker_3dmm, listener_video_clip, listener_audio_clip, listener_emotion, listener_3dmm, listener_reference
+            # listener_reference = torch.load(listener_video_path)
+            # listener_reference = listener_reference.reshape(-1, 3, self.img_size, self.img_size)[0]
+            listener_reference = []
+            img_paths = os.listdir(listener_video_dir)
+            img_paths = sorted(img_paths, key=cmp_to_key(lambda a, b: int(a[:-4]) - int(b[:-4])))
+            # for img_path in img_paths:
+            #         img = self._img_loader(os.path.join(speaker_video_dir, img_path))
+            #         img = self._transform(img)
+            #         listener_reference.append(img.unsqueeze(0))
+                    # listener_reference.append(img)
+            listener_reference = self._img_loader(os.path.join(listener_video_dir, img_paths[0]))
+            listener_reference = self._transform(listener_reference)
+            # listener_reference = torch.cat(listener_reference, dim=0)
+
+        # print (speaker_video_clip.shape)
+        # print (speaker_audio_clip.shape) 
+        # print (speaker_emotion.shape) 
+        # print (speaker_3dmm.shape)
+        # print (listener_video_clip.shape) 
+        # print (listener_audio_clip.shape) 
+        # print ('list emo', listener_emotion.shape) 
+        # print ('list 3d', listener_3dmm.shape) 
+        # print (listener_reference.shape)
+
+        return speaker_video_clip, speaker_video_clip_orig, speaker_audio_clip, speaker_emotion, speaker_3dmm, listener_video_clip, listener_audio_clip, listener_emotion, listener_3dmm, listener_reference
 
     def __len__(self):
         return self._len
 
 
 def get_dataloader(conf, split, load_audio=False, load_video_s=False, load_video_l=False, load_emotion_s=False,
-                   load_emotion_l=False, load_3dmm_s=False, load_3dmm_l=False, load_ref=False, repeat_mirrored=False, use_raw_audio=False):
+                   load_emotion_l=False, load_3dmm_s=False, load_3dmm_l=False, load_ref=False, repeat_mirrored=False, use_raw_audio=False, mode='train'):
     
 #     assert split in ["train", "val", "test"], "split must be in [train, val, test]"
     #print('==> Preparing data for {}...'.format(split) + '\n')
+    print (
+        'MODE: ', mode
+    )
     dataset = ReactionDataset(conf.dataset_path, split, 
                               img_size=conf.img_size, 
                               crop_size=conf.crop_size,
@@ -339,7 +460,8 @@ def get_dataloader(conf, split, load_audio=False, load_video_s=False, load_video
                               load_3dmm_l=load_3dmm_l, 
                               load_ref=load_ref, 
                               repeat_mirrored=repeat_mirrored,
-                              use_raw_audio=use_raw_audio)
+                              use_raw_audio=use_raw_audio,
+                              mode=mode)
     
     shuffle = True if split == "train.csv" else False
     dataloader = DataLoader(dataset=dataset, batch_size=conf.batch_size, shuffle=shuffle, num_workers=conf.num_workers)
