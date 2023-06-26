@@ -109,7 +109,7 @@ def val(args, model, val_loader, criterion, render, binarize=False):
     all_listener_emotion_pred_list.append(listener_emotion_pred.unsqueeze(1))
 
     print("-----------------Repeat 9 times-----------------")
-    for i in range(3):
+    for i in range(9):
         listener_emotion_pred_list = []
         for batch_idx, (
         speaker_video_clip, _, speaker_audio_clip, speaker_emotion, _, _, _, listener_emotion, _, _) in enumerate(tqdm(val_loader)):

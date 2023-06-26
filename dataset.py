@@ -199,7 +199,8 @@ class ReactionDataset(data.Dataset):
         speaker_path = list(self._list_path.values[:, 1])
         listener_path = list(self._list_path.values[:, 2])
 
-        if self._split in ["val.csv", "test.csv"] or repeat_mirrored: # training is always mirrored as data augmentation
+        # TODO: FINAL training with OR
+        if self._split in ["val.csv", "test.csv"] and repeat_mirrored: # training is always mirrored as data augmentation
             speaker_path_tmp = speaker_path + listener_path
             listener_path_tmp = listener_path + speaker_path
             speaker_path = speaker_path_tmp
@@ -345,7 +346,7 @@ class ReactionDataset(data.Dataset):
                 try:
                     speaker_audio_clip, sr = torchaudio.load(speaker_audio_path)
                 except Exception as err:
-                    print ("Exception occurred in :", speaker_audio_path)
+                    # print ("Exception occurred in :", speaker_audio_path)
                     return self.__getitem__(index+1)
 
                 speaker_audio_clip = torchaudio.functional.resample(speaker_audio_clip, sr, 16000)
