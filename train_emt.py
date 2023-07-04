@@ -9,7 +9,7 @@ from tqdm import tqdm
 import logging
 from model import TransformerVAEEmtMarlin
 from utils import AverageMeter
-from render import Render
+# from render import Render
 from dataset_emt import get_dataloader
 from model.losses import VAELoss, div_loss, ContrastiveLoss
 
@@ -149,7 +149,7 @@ def main(args):
     lowest_val_loss = 10000
     load_video_s = True
     # train dataloader
-    train_loader = get_dataloader(args, "../data/train_neg.csv", load_audio=False, load_video_s=load_video_s, load_emotion_s=True, load_emotion_l=True, load_3dmm_l=True, use_raw_audio=args.use_hubert, mode='train')
+    train_loader = get_dataloader(args, "../data/train_neg2.csv", load_audio=False, load_video_s=load_video_s, load_emotion_s=True, load_emotion_l=True, load_3dmm_l=True, use_raw_audio=args.use_hubert, mode='train')
     # val dataloader
     if args.render:
         val_loader = get_dataloader(args, "../data/val.csv", load_audio=False, load_video_s=load_video_s, load_emotion_s=True, load_emotion_l=True, load_3dmm_l=True, load_ref=True, load_video_orig=True, use_raw_audio=args.use_hubert, mode='val')
@@ -175,9 +175,9 @@ def main(args):
     if torch.cuda.is_available():
         print ("Using GPU")
         model = model.cuda()
-        render = Render('cuda')
-    else:
-        render = Render()
+        # render = Render('cuda')
+    # else:
+        # render = Render()
 
     for epoch in range(start_epoch, args.epochs):
         if args.contrastive:
@@ -187,7 +187,7 @@ def main(args):
             train_loss, rec_loss, kld_loss, div_loss = train(args, model, train_loader, optimizer, train_criterion)
             print("Epoch:  {}   train_loss: {:.5f}   train_rec_loss: {:.5f}  train_kld_loss: {:.5f} train_div_loss: {:.5f}".format(epoch+1, train_loss, rec_loss, kld_loss, div_loss))
         if (epoch+1) % 10 == 0:
-            val_loss, rec_loss, kld_loss = val(args, model, val_loader, val_criterion, render, epoch)
+            val_loss, rec_loss, kld_loss = val(args, model, val_loader, val_criterion, 0, epoch)
             print("Epoch:  {}   val_loss: {:.5f}   val_rec_loss: {:.5f}  val_kld_loss: {:.5f} ".format(epoch+1, val_loss, rec_loss, kld_loss))
             # if val_loss < lowest_val_loss:
             # lowest_val_loss = val_loss

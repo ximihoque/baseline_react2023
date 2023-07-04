@@ -14,7 +14,7 @@ import torch.optim as optim
 import argparse
 from tqdm import tqdm
 import json
-import torchaudio
+# import torchaudio
 import warnings # Ignore warnings
 warnings.filterwarnings("ignore")
 
@@ -68,9 +68,9 @@ class MyDataset(Dataset):
             return self.__getitem__(idx + 1)
         return ((x1, speaker_audio_clip), x3), label
 
-bundle = torchaudio.pipelines.HUBERT_LARGE
-model = bundle.get_model()
-model = model.cuda()
+# bundle = torchaudio.pipelines.HUBERT_LARGE
+# model = bundle.get_model()
+# model = model.cuda()
 
 class HuBERTEncoder(nn.Module):
     def __init__(self, feature_dim=512):

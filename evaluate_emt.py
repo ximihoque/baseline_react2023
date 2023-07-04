@@ -215,4 +215,3 @@ if __name__=="__main__":
     os.environ["NUMEXPR_MAX_THREADS"] = '16'
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_ids
     main(args)
-

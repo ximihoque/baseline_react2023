@@ -10,7 +10,7 @@ import random,math
 import time
 import pandas as pd
 from PIL import Image
-import soundfile as sf
+# import soundfile as sf
 import cv2
 from torch.utils.data import DataLoader
 from multiprocessing import Pool

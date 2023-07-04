@@ -1,11 +1,11 @@
 """
 Using only Audio features
 """
-import torchaudio
+# import torchaudio
 import torch.nn as nn
-bundle = torchaudio.pipelines.HUBERT_LARGE
-model = bundle.get_model()
-model = model.cuda()
+# bundle = torchaudio.pipelines.HUBERT_LARGE
+# model = bundle.get_model()
+# model = model.cuda()
 
 class HuBERTEncoder(nn.Module):
     def __init__(self, feature_dim=512):
