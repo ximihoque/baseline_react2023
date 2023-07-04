@@ -15,5 +15,3 @@ tqdm==4.64.1
 tslearn==0.5.3.2
 omegaconf
 yaml
-pytorch-fid
-git+https://github.com/facebookresearch/pytorch3d

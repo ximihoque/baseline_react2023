@@ -161,9 +161,9 @@ def main(args):
     if not os.path.exists(config_path): # args-based loading --> Trans-VAE by default
         if args.split == 'val':
             # TODO: update this path
-            split = 'data/val.csv'
+            split = '../data/val.csv'
         else:
-            split = 'data/test.csv'
+            split = '../data/test.csv'
         val_loader = get_dataloader(args, split, load_audio=True, load_video_s=True, load_video_l=True, load_emotion_s=True, load_emotion_l=True, load_3dmm_l=True, load_ref=True, use_raw_audio=args.use_hubert, mode='val')
         model = TransformerVAE(img_size = args.img_size, audio_dim = args.audio_dim, output_emotion_dim = args.emotion_dim, output_3dmm_dim = args._3dmm_dim, feature_dim = args.feature_dim, seq_len = args.seq_len, online = args.online, window_size = args.window_size, device = args.device, use_hubert=args.use_hubert)
         criterion = VAELoss(args.kl_p)

@@ -158,15 +158,13 @@ class ReactionDataset(data.Dataset):
             repeat_mirrored: (bool) Whether to extend dataset with mirrored speaker/listener. This is used for val/test.
         """
         self._root_path = root_path
-        # self._img_loader = pil_loader
         self._clip_length = clip_length
         self._fps = fps
         self.img_size = img_size
         self._split = split
         self._mode = mode
         self._data_path = self._root_path
-        # print ('CLIP LEN: ', clip_length)
-        # read train.csv/ val.csv
+  
         self._list_path = pd.read_csv(split, header=None, delimiter=',')
         self._list_path = self._list_path.drop(0)
 
@@ -235,9 +233,7 @@ class ReactionDataset(data.Dataset):
             ab_listener_emotion_path = handle_recola_emotion(ab_listener_emotion_path)
             
             ab_listener_3dmm_path = os.path.join(self._3dmm_path, lp + '.npy')
-            # ab_listener_3dmm_path = handle_recola_emotion(ab_listener_3dmm_path)
             
-            # print (ab_listener_3dmm_path)
             _json = {
                     'speaker_video_path':ab_speaker_video_path, 
                     'speaker_video_dir': ab_speaker_video_path_dir,
@@ -294,7 +290,11 @@ class ReactionDataset(data.Dataset):
             if self.load_video_s or self.load_video_l or self.load_ref: # otherwise, no need to compute these image paths
                 img_paths = os.listdir(speaker_video_dir)
                 total_length = len(img_paths)
-                img_paths = sorted(img_paths, key=cmp_to_key(lambda a, b: int(a[:-4]) - int(b[:-4])))
+                try:
+                    img_paths = sorted(img_paths, key=cmp_to_key(lambda a, b: int(a[:-4]) - int(b[:-4])))
+                except Exception as err:
+                    print ('Exception img paths: ', speaker_video_dir)
+                    return self.__getitem__(index+1)
                 cp = 0
                 img_paths = img_paths[cp: cp + self._clip_length]
 
@@ -327,7 +327,12 @@ class ReactionDataset(data.Dataset):
                 listener_video_clip = torch.load(listener_video_path)
             else:
                 img_paths = os.listdir(listener_video_dir)
-                img_paths = sorted(img_paths, key=cmp_to_key(lambda a, b: int(a[:-4]) - int(b[:-4])))
+                try:
+                    img_paths = sorted(img_paths, key=cmp_to_key(lambda a, b: int(a[:-4]) - int(b[:-4])))
+                except Exception as err:
+                    print ('Exception img paths: ', listener_video_dir)
+                    return self.__getitem__(index+1)
+#                 img_paths = sorted(img_paths, key=cmp_to_key(lambda a, b: int(a[:-4]) - int(b[:-4])))
                 cp = 0
                 clip = []
                 for img_path in img_paths:
@@ -381,7 +386,6 @@ class ReactionDataset(data.Dataset):
 
         if self.load_emotion_s:
             speaker_emotion_path = data[f'{speaker_prefix}_emotion_path']
-            speaker_emotion_path = handle_recola_emotion(speaker_emotion_path)
             speaker_emotion = pd.read_csv(speaker_emotion_path, header=None, delimiter=',')
             speaker_emotion = torch.from_numpy(np.array(speaker_emotion.drop(0)).astype(np.float32))[
                                cp: cp + self._clip_length]
@@ -463,7 +467,9 @@ def get_dataloader(conf, split, load_audio=False, load_video_s=False, load_video
                               repeat_mirrored=repeat_mirrored,
                               use_raw_audio=use_raw_audio,
                               mode=mode)
-    
-    shuffle = True if split == "train.csv" else False
+    if mode == 'train':
+        shuffle = True
+    else:
+        shuffle = False
     dataloader = DataLoader(dataset=dataset, batch_size=conf.batch_size, shuffle=shuffle, num_workers=conf.num_workers)
     return dataloader

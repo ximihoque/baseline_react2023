@@ -55,7 +55,7 @@ def main(todo_path):
     for todo in tqdm(files):
         src = '/home/surbhi/ximi/REACT/main/' + todo.split('../')[-1]
         dst = todo.split('../')[-1]
-        scp.get(src, dst, recursive=True)
+        scp.put(src, dst, recursive=True)
         write_processed(todo)
 
 if __name__ == '__main__':

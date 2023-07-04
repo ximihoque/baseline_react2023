@@ -136,12 +136,12 @@ def compute_FRC(args, pred, listener_em, val_test='val'):
                 # print ('listener em: ', listener_em)
                 # print ('speaker neigh index: ', speaker_neighbour_index)
                 # print ('n index: ', n_index)
-                try:
-                    similar_listener_emotion = listener_em[speaker_neighbour_index[n_index]]
-                    ccc = concordance_correlation_coefficient(similar_listener_emotion.numpy(), pred[k,i].numpy())
-                    ccc_list.append(ccc)
-                except:
-                    pass
+                # try:
+                similar_listener_emotion = listener_em[speaker_neighbour_index[n_index]]
+                ccc = concordance_correlation_coefficient(similar_listener_emotion.numpy(), pred[k,i].numpy())
+                ccc_list.append(ccc)
+                # except:
+                    # pass
             max_ccc = max(ccc_list)
             FRC_list.append(max_ccc)
         all_FRC_list.append(np.mean(FRC_list))

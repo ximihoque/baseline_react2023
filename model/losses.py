@@ -15,30 +15,58 @@ class KLLoss(nn.Module):
     def __repr__(self):
         return "KLLoss()"
 
+class ContrastiveLoss(torch.nn.Module):
+    def __init__(self, margin=2.0):
+        super(ContrastiveLoss, self).__init__()
+        
+        self.margin = margin
+        self.cosine_similarity = nn.CosineSimilarity(dim=1, eps=1e-8)
 
+    def forward(self, output1, output2, label):
+
+        # Calculate the contrastive loss
+        cosine_sim = self.cosine_similarity(output1, output2)
+        loss_contrastive = torch.mean((1 - label) * torch.pow(cosine_sim, 2) +
+                                      (label) * torch.pow(torch.clamp(self.margin - cosine_sim, min=0.0), 2))
+        return loss_contrastive
 
 class VAELoss(nn.Module):
-    def __init__(self, kl_p=0.0002):
+    def __init__(self, kl_p=0.0002, contrastive=None):
         super(VAELoss, self).__init__()
         self.mse = nn.MSELoss(reduce=True, size_average=True)
+        self.bce = nn.BCEWithLogitsLoss()
         self.kl_loss = KLLoss()
         self.kl_p = kl_p
+        self.contrastive = contrastive
 
-    def forward(self, gt_emotion, gt_3dmm, pred_emotion, pred_3dmm, distribution):
+    def forward(self, gt_emotion, gt_3dmm, pred_emotion, pred_3dmm, distribution, **kwargs):
+
+        # emt_loss = self.bce(pred_emotion[:, :, :15].view(-1, 15), gt_emotion[:, :, :15].view(-1, 15)) + self.mse(pred_emotion[:, :, 15:], gt_emotion[:, :, 15:])
+        # _3dmm_loss = self.mse(pred_3dmm[:,:, :52], gt_3dmm[:,:, :52]) + 10*self.mse(pred_3dmm[:,:, 52:], gt_3dmm[:,:, 52:])
+        # rec_loss = emt_loss + _3dmm_loss
         rec_loss = self.mse(pred_emotion, gt_emotion) + self.mse(pred_3dmm[:,:, :52], gt_3dmm[:,:, :52]) + 10*self.mse(pred_3dmm[:,:, 52:], gt_3dmm[:,:, 52:])
         mu_ref = torch.zeros_like(distribution[0].loc).to(gt_emotion.get_device())
         scale_ref = torch.ones_like(distribution[0].scale).to(gt_emotion.get_device())
         distribution_ref = torch.distributions.Normal(mu_ref, scale_ref)
 
+        loss = 0
         kld_loss = 0
         for t in range(len(distribution)):
             kld_loss += self.kl_loss(distribution[t], distribution_ref)
         kld_loss = kld_loss / len(distribution)
 
-        loss = rec_loss + self.kl_p * kld_loss
+        loss += rec_loss + self.kl_p * kld_loss
 
+        if self.contrastive:
+            contrastive_loss_pos = self.contrastive(kwargs['spk'], kwargs['list_pos'], 1)
+            contrastive_loss_neg = self.contrastive(kwargs['spk'], kwargs['list_neg'], 0)
+            contrastive_loss = contrastive_loss_pos + contrastive_loss_neg
+            loss += contrastive_loss
 
-        return loss, rec_loss, kld_loss
+            return loss, rec_loss, kld_loss, contrastive_loss
+        else:
+            return loss, rec_loss, kld_loss
+
 
     def __repr__(self):
         return "VAELoss()"

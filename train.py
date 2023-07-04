@@ -8,7 +8,7 @@ import torch.optim as optim
 import argparse
 from tqdm import tqdm
 import logging
-from model import TransformerVAE
+from model import TransformerVAE, TransformerVAEHubert, TransformerVAEPro, TransformerVAEProSim
 from utils import AverageMeter
 from render import Render
 from dataset import get_dataloader
@@ -40,12 +40,12 @@ def parse_arg():
     parser.add_argument('--emotion-dim', default=25, type=int, help="feature dim of emotion")
     parser.add_argument('--online', action='store_true', help='online / offline method')
     parser.add_argument('--render', action='store_true', help='w/ or w/o render')
-    parser.add_argument('--momentum', type=float, default=0.99)
+    parser.add_argument('--momentum', type=float, default=0.9)
     parser.add_argument('--outdir', default="./results", type=str, help="result dir")
     parser.add_argument('--device', default='cuda', type=str, help="device: cuda / cpu")
     parser.add_argument('--gpu-ids', type=str, default='0', help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')
-    parser.add_argument('--kl-p', default=0.0002, type=float, help="hyperparameter for kl-loss")
-    parser.add_argument('--div-p', default=10, type=float, help="hyperparameter for div-loss")
+    parser.add_argument('--kl-p', default=0.0001, type=float, help="hyperparameter for kl-loss")
+    parser.add_argument('--div-p', default=5, type=float, help="hyperparameter for div-loss")
 
     args = parser.parse_args()
     return args
@@ -76,7 +76,7 @@ def train(args, model, train_loader, optimizer, criterion):
         d_loss = div_loss(listener_3dmm_out_, listener_3dmm_out) + div_loss(listener_emotion_out_, listener_emotion_out)
 
         loss = loss + args.div_p * d_loss
-
+        # print ("Train step: %d \t div_loss: %.4f \t rec_loss: %.4f \t loss: %.4f"%(batch_idx, d_loss, rec_loss, loss))
         losses.update(loss.data.item(), speaker_video_clip.size(0))
         rec_losses.update(rec_loss.data.item(), speaker_video_clip.size(0))
         kld_losses.update(kld_loss.data.item(), speaker_video_clip.size(0))
@@ -94,7 +94,7 @@ def val(args, model, val_loader, criterion, render, epoch):
     losses = AverageMeter()
     rec_losses = AverageMeter()
     kld_losses = AverageMeter()
-    model.eval()
+    # model.eval()
     model.reset_window_size(8)
     for batch_idx, (speaker_video_clip, speaker_video_clip_orig, speaker_audio_clip, _, _, _, _, listener_emotion, listener_3dmm, listener_references) in enumerate(tqdm(val_loader)):
         if torch.cuda.is_available():
@@ -112,7 +112,7 @@ def val(args, model, val_loader, criterion, render, epoch):
 
 
             if args.render:
-                print ('rendering...')
+                # print ('rendering...')
                 val_path = os.path.join(args.outdir, 'results_videos', 'val')
                 if not os.path.exists(val_path):
                     os.makedirs(val_path)
@@ -130,14 +130,14 @@ def val(args, model, val_loader, criterion, render, epoch):
 
 def main(args):
     start_epoch = 0
-    lowest_val_loss = 10000
+    lowest_val_loss = 0.71796
     
     # train dataloader
     train_loader = get_dataloader(args, "data/train.csv", load_audio=True, load_video_s=True, load_emotion_l=True, load_3dmm_l=True, use_raw_audio=args.use_hubert, mode='train')
     # val dataloader
     val_loader = get_dataloader(args, "data/val.csv", load_audio=True, load_video_s=True, load_emotion_l=True, load_3dmm_l=True, load_ref=True, use_raw_audio=args.use_hubert, mode='val')
     
-    model = TransformerVAE(img_size = args.img_size, audio_dim = args.audio_dim,  output_3dmm_dim = args._3dmm_dim, output_emotion_dim = args.emotion_dim, feature_dim = args.feature_dim, 
+    model = TransformerVAEPro(img_size = args.img_size, audio_dim = args.audio_dim,  output_3dmm_dim = args._3dmm_dim, output_emotion_dim = args.emotion_dim, feature_dim = args.feature_dim, 
     seq_len = args.seq_len, max_seq_len=args.max_seq_len, online = args.online, window_size = args.window_size, use_hubert=args.use_hubert, device = args.device)
     criterion = VAELoss(args.kl_p)
 

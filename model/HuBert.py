@@ -1,39 +1,32 @@
 """
 Using only Audio features
 """
-
 import torchaudio
 import torch.nn as nn
 bundle = torchaudio.pipelines.HUBERT_LARGE
 model = bundle.get_model()
 model = model.cuda()
 
-
-
 class HuBERTEncoder(nn.Module):
-    def __init__(self, seq_len, feature_dim):
+    def __init__(self, feature_dim=512):
         super(HuBERTEncoder, self).__init__()
-        self.model = model
-        self.model.train()
-        self.model.model.encoder.requires_grad_ = True
-        self.model.model.feature_extractor.requires_grad_= False
+        # self.model.train(mode=False)
+        # self.model.model.encoder.requires_grad_ = True
+        # self.model.model.feature_extractor.requires_grad_= True
 
-        self.conv1d = nn.Conv1d(in_channels=seq_len*2 - 1, out_channels=seq_len, kernel_size=3)
-        # self.conv1 = nn.Conv2d(in_channels=1, out_channels=128, kernel_size=3)
-        # self.pool = nn.MaxPool2d(kernel_size=(2, 2))
-        # self.conv2 = nn.Conv2d(in_channels=128, out_channels=seq_len, kernel_size=3)
-        # emprical
-        self.lin = nn.Linear(746, feature_dim)
+        self.conv1 = nn.Conv1d(in_channels=1024, out_channels=feature_dim, kernel_size=3)
+     
+        self.pool = nn.AdaptiveMaxPool1d(1499)
+        self.relu = nn.ReLU()
+
+        
     def forward(self, x):
         # x = B x F (audio features)
-        out = self.model(x)[0]
-        out = self.conv1d(out)
-        # out = B x T x 1024
-        # out = out.unsqueeze(1)
-        # # out = B x C (1) x T x 1024
-        # out = self.conv1(out)
-        # out = self.pool(out)
-        # out = self.conv2(out)
-        # out = out.mean(dim=(-1))
-        # out = self.lin(out)
+        out = model(x)[0]
+        out = out.permute(0, 2, 1) # N x features x seq
+
+        out = self.relu(self.conv1(out))
+
+        out = self.pool(out)
+        out = out.permute(0, 2, 1) # N x seq x features
         return out 

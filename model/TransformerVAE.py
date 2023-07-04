@@ -124,6 +124,8 @@ class Decoder(nn.Module):
         self.biased_mask = init_biased_mask(n_head = n_head, max_seq_len = max_seq_len, period=max_seq_len)
 
         self.listener_reaction_3dmm_map_layer = nn.Linear(feature_dim, output_3dmm_dim)
+
+        #TODO: create two emotion map layers, 1 - AU (Sigmoid activation), 2 - Emotions 
         self.listener_reaction_emotion_map_layer = nn.Sequential(
             nn.Linear(feature_dim + output_3dmm_dim, feature_dim),
             nn.Linear(feature_dim, output_emotion_dim)
@@ -181,9 +183,31 @@ class VideoEncoder(nn.Module):
     def __init__(self, seq_len, feature_dim):
         super(VideoEncoder, self).__init__()
 
-        self.conv1d = nn.Conv1d(in_channels=23, out_channels=seq_len, kernel_size=3)
+        self.conv1 = nn.Conv1d(in_channels=1024, out_channels=feature_dim, kernel_size=3)
+        # self.in1 = nn.BatchNorm1d(512, affine=False)
+
+        # self.conv2 = nn.Conv1d(in_channels=512, out_channels=256, kernel_size=3)
+        # self.in2 = nn.BatchNorm1d(256, affine=False)
+
+        # self.conv3 = nn.Conv1d(in_channels=256, out_channels=feature_dim, kernel_size=3)
+        # self.in3 = nn.BatchNorm1d(feature_dim, affine=False)
+        # emprical
+        self.pool = nn.AdaptiveMaxPool1d(seq_len)
+        self.relu = nn.ReLU()
+
+        # self.conv1d = nn.Conv1d(in_channels=23, out_channels=seq_len, kernel_size=3)
+        # self.lin = nn.Linear(1022, feature_dim)
+
     def forward(self, x):
-        out = self.conv1d(x)
+        out = x.permute(0, 2, 1) # N x features x seq
+
+        out = self.relu(self.conv1(out))
+        # out = self.relu(self.conv2(out))
+        # out = self.relu(self.conv3(out))
+
+        out = self.pool(out)
+        out = out.permute(0, 2, 1) # N x seq x features
+        
         return out
 
 class SpeakerBehaviourEncoder(nn.Module):
@@ -196,29 +220,41 @@ class SpeakerBehaviourEncoder(nn.Module):
         self.device = device
         
         # self.video_encoder = VideoEncoder(img_size=img_size, feature_dim=feature_dim, device=device)
-        self.video_encoder = VideoEncoder(feature_dim=feature_dim, seq_len=seq_len)
+        self.video_encoder = VideoEncoder(seq_len=seq_len, feature_dim=feature_dim)
 
         self.use_hubert = use_hubert
-        if self.use_hubert:
-            print ("Using HuBERT.")
-            self.audio_encoder = HuBERTEncoder(seq_len, self.feature_dim)
+        # if self.use_hubert:
+        print ("Using HuBERT.")
+        self.audio_encoder = HuBERTEncoder(seq_len, feature_dim=feature_dim)
 
-        self.audio_feature_map = nn.Linear(self.audio_dim, self.feature_dim)
-        if use_hubert:
-            self.audio_feature_map = nn.Linear(1022, self.feature_dim)
+        # self.audio_feature_map = nn.Linear(self.audio_dim, self.feature_dim)
+        # if use_hubert:
+        #     self.audio_feature_map = nn.Linear(1022, self.feature_dim)
 
-        self.video_feature_map = nn.Linear(1022, self.feature_dim)
+        # self.video_feature_map = nn.Linear(1022, self.feature_dim)
+        #TODO: use this fusion 
         self.fusion_layer = nn.Linear(self.feature_dim*2, self.feature_dim)
+        # self.fusion_layer = nn.Sequential(
+        #     nn.Linear(2048, 1024),
+        #     nn.ReLU(),
+        #     # nn.Dropout(0.3),
+        #     nn.Linear(1024, 512),
+        #     nn.ReLU(),
+        #     # nn.Dropout(0.3),
+        #     nn.Linear(512, 256),
+        #     nn.ReLU(),
+        #     # nn.Dropout(0.3),
+        #     nn.Linear(256, self.feature_dim)
+        #     )
+        
 
 
     def forward(self, video, audio):
-        video = self.video_encoder(video)
-        if self.use_hubert:
-            # print (audio.shape)
-            audio = self.audio_encoder(audio)
+        video_feature = self.video_encoder(video)
+        audio_feature = self.audio_encoder(audio)
             # print ('audio shape after hubert: ', audio.shape)
-        audio_feature = self.audio_feature_map(audio)
-        video_feature = self.video_feature_map(video)
+        # audio_feature = self.audio_feature_map(audio)
+        # video_feature = self.video_feature_map(video)
         # if self.use_hubert:
             # return audio_feature
         # print ('video feature shape: ', video_feature.shape)

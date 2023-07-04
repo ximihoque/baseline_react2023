@@ -2,3 +2,8 @@ from .TransformerVAE import TransformerVAE
 from .belfusion.matchers import LatentMLPMatcher
 from .belfusion.rnn import AutoencoderRNN_VAE_v2
 from .HuBert import HuBERTEncoder
+from .TransformerVAEBaseline import TransformerVAEBaseline
+from .TransformerVAEFinal import TransformerVAEFinal
+from .TransformerVAEPro import TransformerVAEPro
+from .TransformerVAEProSim import TransformerVAEProSim
+from .TransformerVAEEmtMarlin import TransformerVAEEmtMarlin
