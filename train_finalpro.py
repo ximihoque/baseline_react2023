@@ -7,7 +7,7 @@ import torch.optim as optim
 import argparse
 from tqdm import tqdm
 import logging
-from model import TransformerVAEEmtMarlin, TransformerVAEFinal
+from model import TransformerVAEFinalPro
 from utils import AverageMeter
 from render import Render
 from dataset_emt import get_dataloader
@@ -46,63 +46,74 @@ def parse_arg():
     parser.add_argument('--kl-p', default=0.0001, type=float, help="hyperparameter for kl-loss")
     parser.add_argument('--div-p', default=10, type=float, help="hyperparameter for div-loss")
     parser.add_argument('--contrastive',  action='store_true', help='w/ or w/o contrastive loss')
+    parser.add_argument('--use-video',  default=False, action='store_true', help='w/ or w/o video modality')
 
     args = parser.parse_args()
     return args
 
 
 # Train
-def train(args, model, train_loader, optimizer, criterion):
+def train(args, model, train_loader, optimizer, criterion, train_speaker_flag=False):
     losses = AverageMeter()
     rec_losses = AverageMeter()
     kld_losses = AverageMeter()
     div_losses = AverageMeter()
     contra_losses = AverageMeter()
-    model.train()
 
+    model.train()
     # print ('Before enumeration')
-    for batch_idx, (speaker_video, _, _, speaker_emotion, _, _, _, listener_emotion, listener_emotion_neg, listener_3dmm, _) in enumerate(tqdm(train_loader)):
+    for batch_idx, (speaker_video, _, _, speaker_emotion, _, listener_video, listener_video_neg, _, listener_emotion, listener_emotion_neg, listener_3dmm) in enumerate(tqdm(train_loader)):
         # print ("Batch: ", batch_idx)
         if torch.cuda.is_available():
             speaker_emotion,  listener_emotion, listener_3dmm, listener_emotion_neg = \
                 speaker_emotion.cuda(), listener_emotion.cuda(), listener_3dmm.cuda(), listener_emotion_neg.cuda()
-            speaker_video = speaker_video.cuda()
+            if args.use_video:
+                speaker_video = speaker_video.cuda()
+                listener_video = listener_video.cuda()
+                listener_video_neg = listener_video_neg.cuda()
+            else:
+                speaker_video = None
+
         listener_3dmm_out, listener_emotion_out, \
                 distribution, \
-                spk_encoded, listener_emt_pos, listener_emt_neg = model(speaker_video, speaker_emotion, (listener_emotion, listener_emotion_neg))
-        
-        if args.contrastive:
-            loss, rec_loss, kld_loss, contra_loss = criterion(listener_emotion, listener_3dmm, 
-                                             listener_emotion_out, listener_3dmm_out,
-                                             distribution,
-                                             spk=spk_encoded, list_pos=listener_emt_pos, list_neg=listener_emt_neg)
-            
-        else:
-            loss, rec_loss, kld_loss = criterion(listener_emotion, listener_3dmm, 
-                                             listener_emotion_out, listener_3dmm_out,
-                                             distribution)
-
+                spk_encoded, list_enc_pos, list_enc_neg = model(speaker_emotion, 
+                                                                (listener_emotion, listener_emotion_neg), 
+                                                                speaker_video, None, is_train=True, 
+                                                                train_speaker_flag=train_speaker_flag)
         with torch.no_grad():
-            listener_3dmm_out_, listener_emotion_out_, _ = model(speaker_video, speaker_emotion)
+            listener_3dmm_out_, listener_emotion_out_, _ = model(speaker_emotion=speaker_emotion, 
+                                                                 speaker_video=speaker_video, 
+                                                                 is_train=False)
 
+        loss, rec_loss, kld_loss, contra_loss = criterion(listener_emotion, listener_3dmm, 
+                                            listener_emotion_out, listener_3dmm_out,
+                                            distribution,
+                                            spk=spk_encoded, list_pos=list_enc_pos, list_neg=list_enc_neg)
+
+        # diversity loss
         d_loss = div_loss(listener_3dmm_out_, listener_3dmm_out) + div_loss(listener_emotion_out_, listener_emotion_out)
-
         loss = loss + args.div_p * d_loss
+        
+        if train_speaker_flag:
+            # cancelling contra loss
+            loss = loss - contra_loss
+        
+        
         # print ("Train step: %d \t div_loss: %.4f \t rec_loss: %.4f \t loss: %.4f \tcont_loss: %.4f"%(batch_idx, d_loss, rec_loss, loss, cont_loss))
         losses.update(loss.data.item(), speaker_emotion.size(0))
         rec_losses.update(rec_loss.data.item(), speaker_emotion.size(0))
         kld_losses.update(kld_loss.data.item(), speaker_emotion.size(0))
         div_losses.update(d_loss.data.item(), speaker_emotion.size(0))
 
-        if args.contrastive:
-            contra_losses.update(contra_loss.data.item(), speaker_emotion.size(0))
+        # if args.contrastive:
+        contra_losses.update(contra_loss.data.item(), speaker_emotion.size(0))
         loss.backward()
         optimizer.step()
     
-    if args.contrastive:
-        return losses.avg, rec_losses.avg, kld_losses.avg, div_losses.avg, contra_losses.avg
-    else:
-        return losses.avg, rec_losses.avg, kld_losses.avg, div_losses.avg
+    # if args.contrastive:
+    return losses.avg, rec_losses.avg, kld_losses.avg, div_losses.avg, contra_losses.avg
+    # else:
+        # return losses.avg, rec_losses.avg, kld_losses.avg, div_losses.avg
 
 
 
@@ -114,13 +125,20 @@ def val(args, model, val_loader, criterion, render, epoch):
     kld_losses = AverageMeter()
     # model.eval()
     model.reset_window_size(8)
-    for batch_idx, (speaker_video, speaker_video_clip_orig, speaker_audio_clip, speaker_emotion, _, _, _, listener_emotion, listener_3dmm, listener_references) in enumerate(tqdm(val_loader)):
+    for batch_idx, (speaker_video, speaker_video_clip_orig, _, speaker_emotion, _, _, _, listener_emotion, listener_3dmm, listener_references) in enumerate(tqdm(val_loader)):
         if torch.cuda.is_available():
             speaker_emotion,  listener_emotion, listener_3dmm = \
                 speaker_emotion.cuda(), listener_emotion.cuda(), listener_3dmm.cuda()
-            speaker_video = speaker_video.cuda()
+
+            if args.use_video:
+                speaker_video = speaker_video.cuda()
+                
+            else:
+                speaker_video = None
         with torch.no_grad():
-            listener_3dmm_out, listener_emotion_out, distribution = model(speaker_video, speaker_emotion)
+            listener_3dmm_out, listener_emotion_out, distribution = model(speaker_emotion=speaker_emotion, 
+                                                                          speaker_video=speaker_video, 
+                                                                          is_train=False)
 
             loss, rec_loss, kld_loss = criterion(listener_emotion, listener_3dmm, listener_emotion_out, listener_3dmm_out, distribution)
 
@@ -149,16 +167,29 @@ def val(args, model, val_loader, criterion, render, epoch):
 def main(args):
     start_epoch = 0
     lowest_val_loss = 10000
-    load_video_s = True
+    
     # train dataloader
-    train_loader = get_dataloader(args, "../data/train_neg.csv", load_audio=False, load_video_s=load_video_s, load_emotion_s=True, load_emotion_l=True, load_3dmm_l=True, use_raw_audio=args.use_hubert, mode='train')
+    train_loader = get_dataloader(args, "../data/train_neg.csv", load_audio=False, 
+                                  load_video_s=args.use_video, load_video_l=args.use_video, 
+                                  load_emotion_s=True, load_emotion_l=True, load_3dmm_l=True, 
+                                  use_raw_audio=args.use_hubert, mode='train')
     # val dataloader
     if args.render:
-        val_loader = get_dataloader(args, "../data/val.csv", load_audio=False, load_video_s=load_video_s, load_emotion_s=True, load_emotion_l=True, load_3dmm_l=True, load_ref=True, load_video_orig=True, use_raw_audio=args.use_hubert, mode='val')
+        val_loader = get_dataloader(args, "../data/val.csv", load_audio=False, 
+                                    load_video_s=args.use_video, load_video_l=args.use_video,
+                                    load_emotion_s=True, load_emotion_l=True, load_3dmm_l=True, 
+                                    load_ref=True, load_video_orig=True, use_raw_audio=args.use_hubert, mode='val')
     else:
-        val_loader = get_dataloader(args, "../data/val.csv", load_audio=False, load_video_s=load_video_s, load_emotion_s=True, load_emotion_l=True, load_3dmm_l=True, load_ref=False, load_video_orig=False, use_raw_audio=args.use_hubert, mode='val')
-    model = TransformerVAEFinal(img_size = args.img_size, audio_dim = args.audio_dim,  output_3dmm_dim = args._3dmm_dim, output_emotion_dim = args.emotion_dim, feature_dim = args.feature_dim, 
-    seq_len = args.seq_len, max_seq_len=args.max_seq_len, online = args.online, window_size = args.window_size, use_hubert=args.use_hubert, device = args.device)
+        val_loader = get_dataloader(args, "../data/val.csv", load_audio=False, 
+                                    load_video_s=args.use_video, load_video_l=args.use_video,
+                                    load_emotion_s=True, load_emotion_l=True, load_3dmm_l=True, 
+                                    load_ref=False, load_video_orig=False, use_raw_audio=args.use_hubert, mode='val')
+        
+    model = TransformerVAEFinalPro(img_size = args.img_size, audio_dim = args.audio_dim,  output_3dmm_dim = args._3dmm_dim, 
+                                   output_emotion_dim = args.emotion_dim, feature_dim = args.feature_dim, 
+                                   seq_len = args.seq_len, max_seq_len=args.max_seq_len, 
+                                   online = args.online, window_size = args.window_size, 
+                                   use_hubert=args.use_hubert, device = args.device, use_video=args.use_video)
     if args.contrastive:
         train_criterion = VAELoss(args.kl_p, ContrastiveLoss())
     else:
@@ -181,13 +212,37 @@ def main(args):
     else:
         render = Render()
 
+    train_speaker_flag = True
+    prev_loss = 10000
+    plateau_threshold = 3
+    plateau_count = 0
+    loss_threshold = 0.03
+    record = 0
+    # TODO: comment out later
+    model.behaviour_encoder.emotion_encoder.requires_grad = False
     for epoch in range(start_epoch, args.epochs):
-        if args.contrastive:
-            train_loss, rec_loss, kld_loss, div_loss, contra_loss = train(args, model, train_loader, optimizer, train_criterion)
-            print("Epoch:  {}   train_loss: {:.5f}   train_rec_loss: {:.5f}  train_kld_loss: {:.5f} train_div_loss: {:.5f}  contra_loss: {:.5f}".format(epoch+1, train_loss, rec_loss, kld_loss, div_loss, contra_loss))
+        
+        train_loss, rec_loss, kld_loss, div_loss, contra_loss = train(args, model, train_loader, optimizer, train_criterion, train_speaker_flag)
+        print("Epoch:  {}   train_loss: {:.5f}   train_rec_loss: {:.5f}  train_kld_loss: {:.5f} train_div_loss: {:.5f}  contra_loss: {:.5f}".format(epoch+1, train_loss, rec_loss, kld_loss, div_loss, contra_loss))
+    
+        record += (prev_loss - contra_loss)
+         # checking for contrastive loss plateau
+        if (abs(record) <= loss_threshold) and not train_speaker_flag:
+            plateau_count += 1
+            print('plateau :', plateau_count)
         else:
-            train_loss, rec_loss, kld_loss, div_loss = train(args, model, train_loader, optimizer, train_criterion)
-            print("Epoch:  {}   train_loss: {:.5f}   train_rec_loss: {:.5f}  train_kld_loss: {:.5f} train_div_loss: {:.5f}".format(epoch+1, train_loss, rec_loss, kld_loss, div_loss))
+            plateau_count = 0
+            record = 0
+
+        prev_loss = contra_loss
+        if (plateau_count == plateau_threshold) and not train_speaker_flag :
+            print ("Contrastive loss plateau detected.")
+            print ("Switiching encoding: speaker_enc -> listener_out")
+            print ("Freezing behaviour encoders")
+            train_speaker_flag = True
+        
+
+
         if (epoch+1) % 10 == 0:
             val_loss, rec_loss, kld_loss = val(args, model, val_loader, val_criterion, render, epoch)
             print("Epoch:  {}   val_loss: {:.5f}   val_rec_loss: {:.5f}  val_kld_loss: {:.5f} ".format(epoch+1, val_loss, rec_loss, kld_loss))

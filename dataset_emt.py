@@ -252,6 +252,7 @@ class ReactionDataset(data.Dataset):
             ab_listener_emotion_path_neg = os.path.join(self._emotion_path, lp_neg +'.csv')
             ab_listener_emotion_path_neg = handle_noxi_emotion(ab_listener_emotion_path_neg)
             ab_listener_emotion_path_neg = handle_recola_emotion(ab_listener_emotion_path_neg)
+            ab_listener_video_path_neg =  os.path.join(self._video_path, lp_neg + '_marlin.pt')
 
         ab_listener_emotion_path = handle_noxi_emotion(ab_listener_emotion_path)
         ab_listener_emotion_path = handle_recola_emotion(ab_listener_emotion_path)
@@ -272,6 +273,7 @@ class ReactionDataset(data.Dataset):
         }
         if lp_neg:
             _json['listener_emotion_path_neg'] = ab_listener_emotion_path_neg
+            _json['listener_video_path_neg'] = ab_listener_video_path_neg
         
         
         if os.path.exists(ab_listener_3dmm_path):
@@ -345,25 +347,35 @@ class ReactionDataset(data.Dataset):
         
         # listener video clip only needed for val/test
         listener_video_clip = 0
+        listener_video_clip_neg = 0
         if self.load_video_l:
+            # try:
+            listener_video_clip = torch.load(listener_video_path)
             if self._mode == 'train':
-                listener_video_clip = torch.load(listener_video_path)
-            else:
-                img_paths = os.listdir(listener_video_dir)
-                try:
-                    img_paths = sorted(img_paths, key=cmp_to_key(lambda a, b: int(a[:-4]) - int(b[:-4])))
-                except Exception as err:
-                    print ('Exception img paths: ', listener_video_dir)
-                    return self.__getitem__(index+1)
-#                 img_paths = sorted(img_paths, key=cmp_to_key(lambda a, b: int(a[:-4]) - int(b[:-4])))
-                cp = 0
-                clip = []
-                for img_path in img_paths:
-                    img = self._img_loader(os.path.join(listener_video_dir, img_path))
-                    img = self._transform(img)
-                    clip.append(img.unsqueeze(0))
-                listener_video_clip = torch.cat(clip, dim=0)
-                listener_video_clip = listener_video_clip[cp:cp + self._clip_length]
+                listener_emotion_path_neg = data[f'{listener_prefix}_video_path_neg']
+                listener_video_clip_neg = torch.load(listener_emotion_path_neg)
+            # except Exception as err:
+                # print ("Exception occurred in :", speaker_video_path)
+                # listener_video_clip = torch.zeros(23, 1024)
+
+#             if self._mode == 'train':
+#                 listener_video_clip = torch.load(listener_video_path)
+#             else:
+#                 img_paths = os.listdir(listener_video_dir)
+#                 try:
+#                     img_paths = sorted(img_paths, key=cmp_to_key(lambda a, b: int(a[:-4]) - int(b[:-4])))
+#                 except Exception as err:
+#                     print ('Exception img paths: ', listener_video_dir)
+#                     return self.__getitem__(index+1)
+# #                 img_paths = sorted(img_paths, key=cmp_to_key(lambda a, b: int(a[:-4]) - int(b[:-4])))
+#                 cp = 0
+#                 clip = []
+#                 for img_path in img_paths:
+#                     img = self._img_loader(os.path.join(listener_video_dir, img_path))
+#                     img = self._transform(img)
+#                     clip.append(img.unsqueeze(0))
+#                 listener_video_clip = torch.cat(clip, dim=0)
+#                 listener_video_clip = listener_video_clip[cp:cp + self._clip_length]
 
         # ========================= Load Speaker audio clip (listener audio is NEVER needed) ==========================
         listener_audio_clip, speaker_audio_clip = 0, 0
@@ -461,7 +473,7 @@ class ReactionDataset(data.Dataset):
         # print ('list 3d', listener_3dmm.shape) 
         # print (listener_reference.shape)
         if self._mode == 'train':
-            return speaker_video_clip, speaker_video_clip_orig, speaker_audio_clip, speaker_emotion, speaker_3dmm, listener_video_clip, listener_audio_clip, listener_emotion, listener_emotion_neg, listener_3dmm, listener_reference
+            return speaker_video_clip, speaker_video_clip_orig, speaker_audio_clip, speaker_emotion, speaker_3dmm, listener_video_clip, listener_video_clip_neg, listener_audio_clip, listener_emotion, listener_emotion_neg, listener_3dmm
         else:
             return speaker_video_clip, speaker_video_clip_orig, speaker_audio_clip, speaker_emotion, speaker_3dmm, listener_video_clip, listener_audio_clip, listener_emotion, listener_3dmm, listener_reference
 
