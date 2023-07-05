@@ -46,6 +46,7 @@ def parse_arg():
     parser.add_argument('--kl-p', default=0.0001, type=float, help="hyperparameter for kl-loss")
     parser.add_argument('--div-p', default=10, type=float, help="hyperparameter for div-loss")
     parser.add_argument('--contrastive',  action='store_true', help='w/ or w/o contrastive loss')
+    parser.add_argument('--use-video',  default=False, action='store_true', help='w/ or w/o video modality')
 
     args = parser.parse_args()
     return args
@@ -61,21 +62,28 @@ def train(args, model, train_loader, optimizer, criterion):
     model.train()
 
     # print ('Before enumeration')
-    for batch_idx, (speaker_video, _, _, speaker_emotion, _, _, _, listener_emotion, listener_emotion_neg, listener_3dmm, _) in enumerate(tqdm(train_loader)):
+    for batch_idx, (speaker_video, _, _, speaker_emotion, _, listener_video, listener_video_neg, _, listener_emotion, listener_emotion_neg, listener_3dmm) in enumerate(tqdm(train_loader)):
         # print ("Batch: ", batch_idx)
         if torch.cuda.is_available():
             speaker_emotion,  listener_emotion, listener_3dmm, listener_emotion_neg = \
                 speaker_emotion.cuda(), listener_emotion.cuda(), listener_3dmm.cuda(), listener_emotion_neg.cuda()
-            speaker_video = speaker_video.cuda()
+            if args.use_video:
+                speaker_video = speaker_video.cuda()
+                listener_video = listener_video.cuda()
+                listener_video_neg = listener_video_neg.cuda()
+            else:
+                speaker_video = None
+
         listener_3dmm_out, listener_emotion_out, \
                 distribution, \
-                spk_encoded, listener_emt_pos, listener_emt_neg = model(speaker_video, speaker_emotion, (listener_emotion, listener_emotion_neg))
-        
+                spk_encoded, list_enc_pos, list_enc_neg = model(speaker_emotion, 
+                                                                (listener_emotion, listener_emotion_neg), 
+                                                                speaker_video, (listener_video, listener_video_neg), is_train=True)
         if args.contrastive:
             loss, rec_loss, kld_loss, contra_loss = criterion(listener_emotion, listener_3dmm, 
                                              listener_emotion_out, listener_3dmm_out,
                                              distribution,
-                                             spk=spk_encoded, list_pos=listener_emt_pos, list_neg=listener_emt_neg)
+                                             spk=spk_encoded, list_pos=list_enc_pos, list_neg=list_enc_neg)
             
         else:
             loss, rec_loss, kld_loss = criterion(listener_emotion, listener_3dmm, 
@@ -83,7 +91,9 @@ def train(args, model, train_loader, optimizer, criterion):
                                              distribution)
 
         with torch.no_grad():
-            listener_3dmm_out_, listener_emotion_out_, _ = model(speaker_video, speaker_emotion)
+            listener_3dmm_out_, listener_emotion_out_, _ = model(speaker_emotion=speaker_emotion, 
+                                                                 speaker_video=speaker_video, 
+                                                                 is_train=False)
 
         d_loss = div_loss(listener_3dmm_out_, listener_3dmm_out) + div_loss(listener_emotion_out_, listener_emotion_out)
 
@@ -112,16 +122,23 @@ def val(args, model, val_loader, criterion, render, epoch):
     losses = AverageMeter()
     rec_losses = AverageMeter()
     kld_losses = AverageMeter()
-    # model.eval()
+    model.eval()
     model.reset_window_size(8)
-    for batch_idx, (speaker_video, speaker_video_clip_orig, speaker_audio_clip, speaker_emotion, _, _, _, listener_emotion, listener_3dmm, listener_references) in enumerate(tqdm(val_loader)):
+    for batch_idx, (speaker_video, speaker_video_clip_orig, _, speaker_emotion, _, _, _, listener_emotion, listener_3dmm, listener_references) in enumerate(tqdm(val_loader)):
         if torch.cuda.is_available():
             speaker_emotion,  listener_emotion, listener_3dmm = \
                 speaker_emotion.cuda(), listener_emotion.cuda(), listener_3dmm.cuda()
-            speaker_video = speaker_video.cuda()
-        with torch.no_grad():
-            listener_3dmm_out, listener_emotion_out, distribution = model(speaker_video, speaker_emotion)
 
+            if args.use_video:
+                speaker_video = speaker_video.cuda()
+                
+            else:
+                speaker_video = None
+        with torch.no_grad():
+            listener_3dmm_out, listener_emotion_out, distribution = model(speaker_emotion=speaker_emotion, 
+                                                                          speaker_video=speaker_video, 
+                                                                          is_train=False)
+            
             loss, rec_loss, kld_loss = criterion(listener_emotion, listener_3dmm, listener_emotion_out, listener_3dmm_out, distribution)
 
             losses.update(loss.data.item(), speaker_emotion.size(0))
@@ -151,13 +168,16 @@ def main(args):
     lowest_val_loss = 10000
     load_video_s = True
     # train dataloader
-    train_loader = get_dataloader(args, "../data/train_neg.csv", load_audio=False, load_video_s=load_video_s, load_emotion_s=True, load_emotion_l=True, load_3dmm_l=True, use_raw_audio=args.use_hubert, mode='train')
+    train_loader = get_dataloader(args, "../data/train_neg.csv", load_audio=False, 
+                                  load_video_s=args.use_video, load_video_l=args.use_video, 
+                                  load_emotion_s=True, load_emotion_l=True, load_3dmm_l=True, 
+                                  use_raw_audio=args.use_hubert, mode='train')
     # val dataloader
     if args.render:
         val_loader = get_dataloader(args, "../data/val.csv", load_audio=False, load_video_s=load_video_s, load_emotion_s=True, load_emotion_l=True, load_3dmm_l=True, load_ref=True, load_video_orig=True, use_raw_audio=args.use_hubert, mode='val')
     else:
         val_loader = get_dataloader(args, "../data/val.csv", load_audio=False, load_video_s=load_video_s, load_emotion_s=True, load_emotion_l=True, load_3dmm_l=True, load_ref=False, load_video_orig=False, use_raw_audio=args.use_hubert, mode='val')
-    model = TransformerVAEFinal(img_size = args.img_size, audio_dim = args.audio_dim,  output_3dmm_dim = args._3dmm_dim, output_emotion_dim = args.emotion_dim, feature_dim = args.feature_dim, 
+    model = TransformerVAEEmtMarlin(img_size = args.img_size, audio_dim = args.audio_dim,  output_3dmm_dim = args._3dmm_dim, output_emotion_dim = args.emotion_dim, feature_dim = args.feature_dim, 
     seq_len = args.seq_len, max_seq_len=args.max_seq_len, online = args.online, window_size = args.window_size, use_hubert=args.use_hubert, device = args.device)
     if args.contrastive:
         train_criterion = VAELoss(args.kl_p, ContrastiveLoss())
@@ -188,11 +208,11 @@ def main(args):
         else:
             train_loss, rec_loss, kld_loss, div_loss = train(args, model, train_loader, optimizer, train_criterion)
             print("Epoch:  {}   train_loss: {:.5f}   train_rec_loss: {:.5f}  train_kld_loss: {:.5f} train_div_loss: {:.5f}".format(epoch+1, train_loss, rec_loss, kld_loss, div_loss))
-        if (epoch+1) % 10 == 0:
-            val_loss, rec_loss, kld_loss = val(args, model, val_loader, val_criterion, render, epoch)
-            print("Epoch:  {}   val_loss: {:.5f}   val_rec_loss: {:.5f}  val_kld_loss: {:.5f} ".format(epoch+1, val_loss, rec_loss, kld_loss))
-            # if val_loss < lowest_val_loss:
-            # lowest_val_loss = val_loss
+        # if (epoch+1) % 10 == 0:
+        val_loss, rec_loss, kld_loss = val(args, model, val_loader, val_criterion, render, epoch)
+        print("Epoch:  {}   val_loss: {:.5f}   val_rec_loss: {:.5f}  val_kld_loss: {:.5f} ".format(epoch+1, val_loss, rec_loss, kld_loss))
+        if val_loss < lowest_val_loss:
+            lowest_val_loss = val_loss
             checkpoint = {
                 'epoch': epoch+1,
                 'state_dict': model.state_dict(),

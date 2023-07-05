@@ -47,6 +47,7 @@ def parse_arg():
     parser.add_argument('--div-p', default=10, type=float, help="hyperparameter for div-loss")
     parser.add_argument('--contrastive',  action='store_true', help='w/ or w/o contrastive loss')
     parser.add_argument('--use-video',  default=False, action='store_true', help='w/ or w/o video modality')
+    parser.add_argument('--speaker',  default=False, action='store_true', help='w/ or w/o speaker')
 
     args = parser.parse_args()
     return args
@@ -78,7 +79,7 @@ def train(args, model, train_loader, optimizer, criterion, train_speaker_flag=Fa
                 distribution, \
                 spk_encoded, list_enc_pos, list_enc_neg = model(speaker_emotion, 
                                                                 (listener_emotion, listener_emotion_neg), 
-                                                                speaker_video, None, is_train=True, 
+                                                                speaker_video, (listener_video, listener_video_neg), is_train=True, 
                                                                 train_speaker_flag=train_speaker_flag)
         with torch.no_grad():
             listener_3dmm_out_, listener_emotion_out_, _ = model(speaker_emotion=speaker_emotion, 
@@ -94,9 +95,9 @@ def train(args, model, train_loader, optimizer, criterion, train_speaker_flag=Fa
         d_loss = div_loss(listener_3dmm_out_, listener_3dmm_out) + div_loss(listener_emotion_out_, listener_emotion_out)
         loss = loss + args.div_p * d_loss
         
-        if train_speaker_flag:
-            # cancelling contra loss
-            loss = loss - contra_loss
+        # if train_speaker_flag:
+        #     # cancelling contra loss
+        #     loss = loss - contra_loss
         
         
         # print ("Train step: %d \t div_loss: %.4f \t rec_loss: %.4f \t loss: %.4f \tcont_loss: %.4f"%(batch_idx, d_loss, rec_loss, loss, cont_loss))
@@ -123,7 +124,7 @@ def val(args, model, val_loader, criterion, render, epoch):
     losses = AverageMeter()
     rec_losses = AverageMeter()
     kld_losses = AverageMeter()
-    # model.eval()
+    model.eval()
     model.reset_window_size(8)
     for batch_idx, (speaker_video, speaker_video_clip_orig, _, speaker_emotion, _, _, _, listener_emotion, listener_3dmm, listener_references) in enumerate(tqdm(val_loader)):
         if torch.cuda.is_available():
@@ -190,10 +191,8 @@ def main(args):
                                    seq_len = args.seq_len, max_seq_len=args.max_seq_len, 
                                    online = args.online, window_size = args.window_size, 
                                    use_hubert=args.use_hubert, device = args.device, use_video=args.use_video)
-    if args.contrastive:
-        train_criterion = VAELoss(args.kl_p, ContrastiveLoss())
-    else:
-        train_criterion = VAELoss(args.kl_p)
+    train_criterion = VAELoss(args.kl_p, ContrastiveLoss())
+   
     val_criterion = VAELoss(args.kl_p)
 
     optimizer = optim.AdamW(model.parameters(), betas=(0.9, 0.999), lr=args.learning_rate, weight_decay=args.weight_decay)
@@ -212,36 +211,35 @@ def main(args):
     else:
         render = Render()
 
-    train_speaker_flag = True
+    train_speaker_flag = args.speaker
     prev_loss = 10000
     plateau_threshold = 3
     plateau_count = 0
-    loss_threshold = 0.03
+    loss_threshold = 0.01
     record = 0
-    # TODO: comment out later
-    model.behaviour_encoder.emotion_encoder.requires_grad = False
+    
     for epoch in range(start_epoch, args.epochs):
         
         train_loss, rec_loss, kld_loss, div_loss, contra_loss = train(args, model, train_loader, optimizer, train_criterion, train_speaker_flag)
         print("Epoch:  {}   train_loss: {:.5f}   train_rec_loss: {:.5f}  train_kld_loss: {:.5f} train_div_loss: {:.5f}  contra_loss: {:.5f}".format(epoch+1, train_loss, rec_loss, kld_loss, div_loss, contra_loss))
     
-        record += (prev_loss - contra_loss)
-         # checking for contrastive loss plateau
-        if (abs(record) <= loss_threshold) and not train_speaker_flag:
-            plateau_count += 1
-            print('plateau :', plateau_count)
-        else:
-            plateau_count = 0
-            record = 0
+        # record += (prev_loss - contra_loss)
+        #  # checking for contrastive loss plateau
+        # if (abs(record) <= loss_threshold) and not train_speaker_flag:
+        #     plateau_count += 1
+        #     print('plateau :', plateau_count)
+        # else:
+        #     plateau_count = 0
+        #     record = 0
 
-        prev_loss = contra_loss
-        if (plateau_count == plateau_threshold) and not train_speaker_flag :
-            print ("Contrastive loss plateau detected.")
-            print ("Switiching encoding: speaker_enc -> listener_out")
-            print ("Freezing behaviour encoders")
-            train_speaker_flag = True
-        
-
+        # prev_loss = contra_loss
+        # if (plateau_count == plateau_threshold) and not train_speaker_flag :
+        #     print ("Contrastive loss plateau detected.")
+        #     print ("Switiching encoding: speaker_enc -> listener_out")
+        #     print ("Freezing behaviour encoders")
+        #     train_speaker_flag = True
+        #     model.behaviour_encoder.emotion_encoder.requires_grad = False
+        #     model.behaviour_encoder.video_encoder.requires_grad = False
 
         if (epoch+1) % 10 == 0:
             val_loss, rec_loss, kld_loss = val(args, model, val_loader, val_criterion, render, epoch)

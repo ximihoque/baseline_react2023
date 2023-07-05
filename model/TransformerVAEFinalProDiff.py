@@ -4,8 +4,8 @@ import torch.nn.functional as F
 import numpy as np
 import math
 from .BasicBlock import ConvBlock, PositionalEncoding, lengths_to_mask, init_biased_mask
-from .HuBert import HuBERTEncoder
-from train_siamese import SiameseNetwork
+# from .HuBert import HuBERTEncoder
+# from train_siamese import SiameseNetwork
 
 class VAEModel(nn.Module):
     def __init__(self,
@@ -19,7 +19,7 @@ class VAEModel(nn.Module):
         seq_trans_encoder_layer = nn.TransformerEncoderLayer(d_model=latent_dim,
                                                              nhead=4,
                                                              dim_feedforward=latent_dim * 2,
-                                                             dropout=0.1)
+                                                             dropout=0.3)
 
         self.seqTransEncoder = nn.TransformerEncoder(seq_trans_encoder_layer, num_layers=1)
         self.mu_token = nn.Parameter(torch.randn(latent_dim))
@@ -58,8 +58,6 @@ class VAEModel(nn.Module):
          return distribution.rsample()
 
 
-
-
 class Decoder(nn.Module):
     def __init__(self,  output_3dmm_dim = 58, output_emotion_dim = 25, feature_dim = 128, device = 'cpu', 
                         max_seq_len=751, n_head = 4, window_size = 8, online = False):
@@ -85,12 +83,7 @@ class Decoder(nn.Module):
             nn.Linear(feature_dim + output_3dmm_dim, feature_dim),
             nn.Linear(feature_dim, output_emotion_dim)
         )
-        # self.listener_emotion_AU = nn.Sequential(
-        #     nn.Linear(output_emotion_dim, 15),
-        #     nn.ReLU(),
-        #     nn.Sigmoid()
-        # )
-        # self.listener_emotion_emotion = nn.Linear(output_emotion_dim, 10)
+       
 
         self.PE = PositionalEncoding(feature_dim)
 
@@ -107,7 +100,6 @@ class Decoder(nn.Module):
         listener_reaction = self.listener_reaction_decoder_1(tgt=time_queries, memory=motion_sample.unsqueeze(1), tgt_mask=tgt_mask)
         listener_reaction = self.listener_reaction_decoder_2(listener_reaction, listener_reaction, tgt_mask=tgt_mask)
 
-       
         listener_3dmm_out = self.listener_reaction_3dmm_map_layer(listener_reaction)
 
 
@@ -123,9 +115,13 @@ class VideoEncoder(nn.Module):
     def __init__(self, feature_dim=512):
         super(VideoEncoder, self).__init__()
         self.conv1 = nn.Conv1d(in_channels=1024, out_channels=feature_dim, kernel_size=3)
-       
         self.pool = nn.AdaptiveMaxPool1d(23)
         self.relu = nn.ReLU()
+        # transformer_layer = nn.TransformerEncoderLayer(d_model=feature_dim, 
+                                                    # nhead=4,
+                                                    # dim_feedforward=feature_dim*2,
+                                                    # dropout=0.3)
+        # self.encoder = nn.TransformerEncoder(transformer_layer, num_layers=1)
 
     def forward(self, x):
         out = x.permute(0, 2, 1) # N x features x seq
@@ -133,46 +129,67 @@ class VideoEncoder(nn.Module):
         out = self.pool(out)
         out = out.permute(0, 2, 1) # N x seq x features
         
+        # out = self.encoder(out)
         return out
 
-class SpeakerBehaviourEncoder(nn.Module):
-    def __init__(self, img_size=224, audio_dim = 78, feature_dim = 128, use_hubert=False, seq_len=750, device = 'cpu'):
-        super(SpeakerBehaviourEncoder, self).__init__()
+class EmotionEncoder(nn.Module):
+    def __init__(self, feature_dim=128):
+        super(EmotionEncoder, self).__init__()
+        self.conv1 = nn.Conv1d(in_channels=25, out_channels=feature_dim, kernel_size=3)
 
-        self.device = device
+        self.pool = nn.AdaptiveMaxPool1d(750)
+        self.relu = nn.ReLU()
+        # transformer_layer = nn.TransformerEncoderLayer(d_model=feature_dim, 
+                                                    # nhead=4,
+                                                    # dim_feedforward=feature_dim*2,
+                                                    # dropout=0.3)
+        # self.encoder = nn.TransformerEncoder(transformer_layer, num_layers=1)
+
+    def forward(self, x):
+        out = x.permute(0, 2, 1) # N x features x seq
+        out = self.pool(self.relu(self.conv1(x.permute(0, 2, 1)))) 
+        out = out.permute(0, 2, 1)
+        # out = self.encoder(out)
+        return out
+
+
+class BehaviourEncoder(nn.Module):
+    def __init__(self, feature_dim=128, use_video=False):
+        super(BehaviourEncoder, self).__init__()
         
-        # self.video_encoder = VideoEncoder(img_size=img_size, feature_dim=feature_dim, device=device)
-        self.video_encoder = VideoEncoder(feature_dim=512)
-
-        self.use_hubert = use_hubert
-        # if self.use_hubert:
-        print ("Using HuBERT.")
-        self.audio_encoder = HuBERTEncoder(feature_dim=512)
-        #TODO: use this fusion 
-        self.fusion_layer = nn.Linear(512, 256)
-        transformer_layer = nn.TransformerEncoderLayer(d_model=256, 
+        self.use_video = use_video
+        if use_video:
+            print ("Using ON.")
+            self.video_encoder = VideoEncoder(feature_dim=128)
+        else:
+            print ("Video OFF.")
+        self.emotion_encoder = EmotionEncoder()
+        transformer_layer = nn.TransformerEncoderLayer(d_model=128, 
                                                     nhead=4,
-                                                    dim_feedforward=512,
+                                                    dim_feedforward=256,
                                                     dropout=0.3)
         self.encoder = nn.TransformerEncoder(transformer_layer, num_layers=1)
+        self.pool = nn.AdaptiveMaxPool1d(750)
+        self.fusion_layer =  nn.Linear(128, feature_dim)
 
-        self.lin = nn.Linear(256, feature_dim)
-        self.pool = nn.AdaptiveMaxPool1d(seq_len)
+    def forward(self, emotion, video=None):
+        # handle if audio not present
+        emotion_feature = self.emotion_encoder(emotion)
+        if self.use_video:
+            video_feature = self.video_encoder(video)
+            encoded_feature = self.fusion_layer(self.encoder(torch.cat((emotion_feature, video_feature), dim=1)))
+        else:
+            encoded_feature = self.fusion_layer(self.encoder(emotion_feature))
 
-    def forward(self, video, audio):
-        video_feature = self.video_encoder(video)
-        audio_feature = self.audio_encoder(audio)
-     
-        fused = self.fusion_layer(torch.cat((video_feature, audio_feature), dim=1))
-        encoded_feature = self.pool(self.lin(self.encoder(fused)).permute(0, 2, 1)).permute(0, 2, 1)
+        encoded_feature = self.pool(encoded_feature.permute(0, 2, 1)).permute(0, 2, 1)
 
         return encoded_feature
 
 
 
-class TransformerVAEProSim(nn.Module):
-    def __init__(self, img_size=224, audio_dim = 78, output_3dmm_dim = 58, output_emotion_dim = 25, feature_dim = 128, seq_len=751, max_seq_len=751, online = False, window_size = 8, use_hubert=False, device = 'cuda'):
-        super(TransformerVAEProSim, self).__init__()
+class TransformerVAEFinalProDiff(nn.Module):
+    def __init__(self, img_size=224, audio_dim = 78, output_3dmm_dim = 58, output_emotion_dim = 25, feature_dim = 128, seq_len=751, max_seq_len=751, online = False, window_size = 8, use_hubert=False, device = 'cuda', use_video=False, is_train=True):
+        super(TransformerVAEFinalProDiff, self).__init__()
 
         self.img_size = img_size
         self.feature_dim = feature_dim
@@ -182,12 +199,15 @@ class TransformerVAEProSim(nn.Module):
         self.online = online
         self.window_size = window_size
         self.use_hubert = use_hubert
-        self.speaker_behaviour_encoder = SpeakerBehaviourEncoder(img_size, audio_dim, feature_dim, use_hubert, seq_len, device)
-        self.reaction_decoder = Decoder(output_3dmm_dim = output_3dmm_dim, output_emotion_dim = output_emotion_dim, feature_dim = feature_dim, max_seq_len=max_seq_len, device=device, window_size = self.window_size, online = online)
-        self.listener_processor = nn.Conv1d(in_channels=25, out_channels=feature_dim, kernel_size=3)
-        self.pool = nn.AdaptiveMaxPool1d(seq_len)
+        self.use_video = use_video
 
-    def forward(self, speaker_video, speaker_audio, listener_emotion=None):
+        self.behaviour_encoder = BehaviourEncoder(feature_dim, use_video=use_video)
+        # self.listener_encoder = BehaviourEncoder(feature_dim, use_video=use_video)
+        self.reaction_decoder = Decoder(output_3dmm_dim = output_3dmm_dim, output_emotion_dim = output_emotion_dim, feature_dim = feature_dim, max_seq_len=max_seq_len, device=device, window_size = self.window_size, online = online)
+        # self.listener_processor = nn.Conv1d(in_channels=25, out_channels=feature_dim, kernel_size=3)
+        # self.pool = nn.AdaptiveMaxPool1d(seq_len)
+
+    def forward_train(self, speaker_emotion, listener_emotion, speaker_video=None, listener_video=None, train_speaker_flag=False):
 
         """
         input:
@@ -202,31 +222,56 @@ class TransformerVAEProSim(nn.Module):
         """
 
         distribution = []
-        relu = nn.ReLU()
-        if listener_emotion:
-            listener_emt_pos, listener_emt_neg = listener_emotion
+        # both positive and negative emotions [for contrastive]
+        listener_emt_pos, listener_emt_neg = listener_emotion
+        
+        if self.use_video:
+            listener_vid_pos, listener_vid_neg = listener_video
+            listener_encoded_pos = self.behaviour_encoder(listener_emt_pos, listener_vid_pos)
+            listener_encoded_neg = self.behaviour_encoder(listener_emt_neg, listener_vid_neg)
+
+            speaker_encoded = self.behaviour_encoder(speaker_emotion, speaker_video)
+        else:
+            listener_encoded_pos = self.behaviour_encoder(listener_emt_pos)
+            listener_encoded_neg = self.behaviour_encoder(listener_emt_neg)
+
+            speaker_encoded = self.behaviour_encoder(speaker_emotion)
             # print ('neg shape: ', listener_emt_neg.shape)
             # print ('pos shape: ', listener_emt_pos.shape)
-            listener_emt_pos = self.pool(relu(self.listener_processor(listener_emt_pos.permute(0, 2, 1)))).permute(0, 2, 1)
-            listener_emt_neg = self.pool(relu(self.listener_processor(listener_emt_neg.permute(0, 2, 1)))).permute(0, 2, 1)
+            
         
         # print ('neg shape: ', listener_emt_neg.shape)
         # print ('pos shape: ', listener_emt_pos.shape)
-        encoded_feature = self.speaker_behaviour_encoder(speaker_video, speaker_audio)
-        listener_3dmm_out, listener_emotion_out, dist = self.reaction_decoder(encoded_feature)
+        if train_speaker_flag:
+            listener_3dmm_out, listener_emotion_out, dist = self.reaction_decoder(speaker_encoded)
+        else:
+            listener_3dmm_out, listener_emotion_out, dist = self.reaction_decoder(listener_encoded_pos)
         distribution.append(dist)
 
-        if listener_emotion:
-            return listener_3dmm_out, listener_emotion_out, distribution, encoded_feature, listener_emt_pos, listener_emt_neg
-        else:
-            return listener_3dmm_out, listener_emotion_out, distribution
-
+  
+        return listener_3dmm_out, listener_emotion_out, distribution, speaker_encoded, listener_encoded_pos, listener_encoded_neg
 
     def reset_window_size(self, window_size):
         self.window_size = window_size
         self.reaction_decoder.reset_window_size(window_size)
 
+    def forward_predict(self, speaker_emotion, speaker_video=None):
+        distribution  = []
+        if self.use_video:
+            speaker_encoded = self.behaviour_encoder(speaker_emotion, speaker_video)
+        else:
+            speaker_encoded = self.behaviour_encoder(speaker_emotion)
 
+        listener_3dmm_out, listener_emotion_out, dist = self.reaction_decoder(speaker_encoded)
+        distribution.append(dist)
+
+        return listener_3dmm_out, listener_emotion_out, distribution
+
+    def forward(self, speaker_emotion, listener_emotion=None, speaker_video=None, listener_video=None, is_train=True, train_speaker_flag=False):
+        if is_train:
+            return self.forward_train(speaker_emotion, listener_emotion, speaker_video, listener_video, train_speaker_flag)
+        else:
+            return self.forward_predict(speaker_emotion, speaker_video)
 
 if __name__ == "__main__":
     pass

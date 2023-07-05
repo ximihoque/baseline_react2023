@@ -121,7 +121,7 @@ class VideoEncoder(nn.Module):
                                                     nhead=4,
                                                     dim_feedforward=feature_dim*2,
                                                     dropout=0.3)
-        # self.encoder = nn.TransformerEncoder(transformer_layer, num_layers=1)
+        self.encoder = nn.TransformerEncoder(transformer_layer, num_layers=1)
 
     def forward(self, x):
         out = x.permute(0, 2, 1) # N x features x seq
@@ -129,7 +129,7 @@ class VideoEncoder(nn.Module):
         out = self.pool(out)
         out = out.permute(0, 2, 1) # N x seq x features
         
-        # out = self.encoder(out)
+        out = self.encoder(out)
         return out
 
 class EmotionEncoder(nn.Module):
@@ -143,13 +143,13 @@ class EmotionEncoder(nn.Module):
                                                     nhead=4,
                                                     dim_feedforward=feature_dim*2,
                                                     dropout=0.3)
-        # self.encoder = nn.TransformerEncoder(transformer_layer, num_layers=1)
+        self.encoder = nn.TransformerEncoder(transformer_layer, num_layers=1)
 
     def forward(self, x):
         out = x.permute(0, 2, 1) # N x features x seq
         out = self.pool(self.relu(self.conv1(x.permute(0, 2, 1)))) 
         out = out.permute(0, 2, 1)
-        # out = self.encoder(out)
+        out = self.encoder(out)
         return out
 
 
@@ -202,10 +202,8 @@ class TransformerVAEFinalPro(nn.Module):
         self.use_video = use_video
 
         self.behaviour_encoder = BehaviourEncoder(feature_dim, use_video=use_video)
-        # self.listener_encoder = BehaviourEncoder(feature_dim, use_video=use_video)
         self.reaction_decoder = Decoder(output_3dmm_dim = output_3dmm_dim, output_emotion_dim = output_emotion_dim, feature_dim = feature_dim, max_seq_len=max_seq_len, device=device, window_size = self.window_size, online = online)
-        # self.listener_processor = nn.Conv1d(in_channels=25, out_channels=feature_dim, kernel_size=3)
-        # self.pool = nn.AdaptiveMaxPool1d(seq_len)
+
 
     def forward_train(self, speaker_emotion, listener_emotion, speaker_video=None, listener_video=None, train_speaker_flag=False):
 

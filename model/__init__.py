@@ -2,7 +2,6 @@ from .TransformerVAE import TransformerVAE
 from .belfusion.matchers import LatentMLPMatcher
 from .belfusion.rnn import AutoencoderRNN_VAE_v2
 from .TransformerVAEBaseline import TransformerVAEBaseline
-from .TransformerVAEFinal import TransformerVAEFinal
 from .TransformerVAEFinalPro import TransformerVAEFinalPro
-from .TransformerVAEProSim import TransformerVAEProSim
+from .TransformerVAEFinalProDiff import TransformerVAEFinalProDiff
 from .TransformerVAEEmtMarlin import TransformerVAEEmtMarlin

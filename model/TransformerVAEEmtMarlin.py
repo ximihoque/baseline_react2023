@@ -175,14 +175,14 @@ class SpeakerBehaviourEncoder(nn.Module):
         self.pool = nn.AdaptiveMaxPool1d(750)
         self.fusion_layer =  nn.Linear(128, feature_dim)
 
-    def forward(self, video, emotion):
+    def forward(self, emotion, video):
         # handle if audio not present
         emotion_feature = self.emotion_encoder(emotion)
         video_feature = self.video_encoder(video)
         encoded_feature = self.fusion_layer(self.encoder(torch.cat((emotion_feature, video_feature), dim=1)))
         encoded_feature = self.pool(encoded_feature.permute(0, 2, 1)).permute(0, 2, 1)
 
-        return encoded_feature, emotion_feature
+        return encoded_feature
 
 
 
@@ -205,7 +205,7 @@ class TransformerVAEEmtMarlin(nn.Module):
         # self.listener_processor = nn.Conv1d(in_channels=25, out_channels=feature_dim, kernel_size=3)
         # self.pool = nn.AdaptiveMaxPool1d(seq_len)
 
-    def forward(self, speaker_video, speaker_emotion, listener_emotion=None):
+    def forward_train(self, speaker_emotion, listener_emotion, speaker_video=None, listener_video=None):
 
         """
         input:
@@ -220,30 +220,42 @@ class TransformerVAEEmtMarlin(nn.Module):
         """
 
         distribution = []
-        relu = nn.ReLU()
-        if listener_emotion:
-            listener_emt_pos, listener_emt_neg = listener_emotion
-            # print ('neg shape: ', listener_emt_neg.shape)
-            # print ('pos shape: ', listener_emt_pos.shape)
-            listener_emt_pos = self.speaker_behaviour_encoder.emotion_encoder(listener_emt_pos)
-            listener_emt_neg = self.speaker_behaviour_encoder.emotion_encoder(listener_emt_neg)
+        # both positive and negative emotions [for contrastive]
+        listener_emt_pos, listener_emt_neg = listener_emotion
         
-        # print ('neg shape: ', listener_emt_neg.shape)
-        # print ('pos shape: ', listener_emt_pos.shape)
-        encoded_feature, emotion_feature = self.speaker_behaviour_encoder(speaker_video, speaker_emotion)
-        # encoded_feature = self.emotion_encoder(speaker_emotion)
-        listener_3dmm_out, listener_emotion_out, dist = self.reaction_decoder(encoded_feature)
+       
+        listener_vid_pos, listener_vid_neg = listener_video
+        listener_encoded_pos = self.speaker_behaviour_encoder(listener_emt_pos, listener_vid_pos)
+        listener_encoded_neg = self.speaker_behaviour_encoder(listener_emt_neg, listener_vid_neg)
+
+        speaker_encoded = self.speaker_behaviour_encoder(speaker_emotion, speaker_video)
+        
+        listener_3dmm_out, listener_emotion_out, dist = self.reaction_decoder(speaker_encoded)
+        
         distribution.append(dist)
 
-        if listener_emotion:
-            return listener_3dmm_out, listener_emotion_out, distribution, emotion_feature, listener_emt_pos, listener_emt_neg
-        else:
-            return listener_3dmm_out, listener_emotion_out, distribution
-
+  
+        return listener_3dmm_out, listener_emotion_out, distribution, speaker_encoded, listener_encoded_pos, listener_encoded_neg
 
     def reset_window_size(self, window_size):
         self.window_size = window_size
         self.reaction_decoder.reset_window_size(window_size)
+
+    def forward_predict(self, speaker_emotion, speaker_video=None):
+        distribution  = []
+        
+        speaker_encoded = self.speaker_behaviour_encoder(speaker_emotion, speaker_video)
+
+        listener_3dmm_out, listener_emotion_out, dist = self.reaction_decoder(speaker_encoded)
+        distribution.append(dist)
+
+        return listener_3dmm_out, listener_emotion_out, distribution
+
+    def forward(self, speaker_emotion, listener_emotion=None, speaker_video=None, listener_video=None, is_train=True):
+        if is_train:
+            return self.forward_train(speaker_emotion, listener_emotion, speaker_video, listener_video)
+        else:
+            return self.forward_predict(speaker_emotion, speaker_video)
 
 
 
