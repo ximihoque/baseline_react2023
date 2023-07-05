@@ -11,7 +11,7 @@ from tqdm import tqdm
 import logging
 from model import TransformerVAEEmtMarlin
 from utils import AverageMeter
-from render import Render
+# from render import Render
 from model.losses import VAELoss
 from metric import *
 from dataset_emt import get_dataloader
@@ -47,6 +47,7 @@ def parse_arg():
     parser.add_argument('--kl-p', default=0.0002, type=float, help="hyperparameter for kl-loss")
     parser.add_argument('--threads', default=16, type=int, help="num max of threads")
     parser.add_argument('--binarize', action='store_true', help='binarize AUs output from model')
+    parser.add_argument('--use-video',  default=False, action='store_true', help='w/ or w/o video modality')
 
     args = parser.parse_args()
     return args
@@ -56,7 +57,7 @@ def val(args, model, val_loader, criterion, render, binarize=False):
     losses = AverageMeter()
     rec_losses = AverageMeter()
     kld_losses = AverageMeter()
-    # model.eval()
+    model.eval()
 
     out_dir = os.path.join(args.outdir, args.split)
     if not os.path.exists(out_dir):
@@ -67,17 +68,18 @@ def val(args, model, val_loader, criterion, render, binarize=False):
     speaker_emotion_list = []
     all_listener_emotion_pred_list = []
 
-    for batch_idx, (speaker_video, speaker_video_clip_orig, _, speaker_emotion, _, listener_video_clip, _, listener_emotion, listener_3dmm, listener_references) in enumerate(tqdm(val_loader)):
+    for batch_idx, (speaker_video, speaker_video_clip_orig, _, speaker_emotion, _, _, _, listener_emotion, listener_3dmm, listener_references) in enumerate(tqdm(val_loader)):
         if torch.cuda.is_available():
-            # if len(speaker_video_clip.shape) != 1: # if loaded
-                # speaker_video_clip = speaker_video_clip.cuda()
-            # speaker_video_clip_orig, speaker_audio_clip = speaker_video_clip_orig[:,:750].cuda(), speaker_audio_clip.cuda()
-            # speaker_emotion, listener_emotion, listener_3dmm, listener_references = speaker_emotion[:,:750].cuda(), listener_emotion[:,:750].cuda(), listener_3dmm[:,:750].cuda(), listener_references[:,:750].cuda()
             speaker_emotion,  listener_emotion, listener_3dmm = \
                 speaker_emotion.cuda(), listener_emotion.cuda(), listener_3dmm.cuda()
-            speaker_video = speaker_video.cuda()
+
+            if args.use_video:
+                speaker_video = speaker_video.cuda()
+                
+            else:
+                speaker_video = None
         with torch.no_grad():
-            prediction = model(speaker_video, speaker_emotion)
+            prediction = model(speaker_emotion=speaker_emotion, speaker_video=speaker_video, is_train=False)
             
             if isinstance(prediction, list) or isinstance(prediction, tuple): # Trans VAE
                 listener_3dmm_out, listener_emotion_out, distribution = prediction
@@ -113,16 +115,18 @@ def val(args, model, val_loader, criterion, render, binarize=False):
     print("-----------------Repeat 9 times-----------------")
     for i in range(9):
         listener_emotion_pred_list = []
-        for batch_idx, (
-        speaker_video, _, _, speaker_emotion, _, _, _, listener_emotion, _, _) in enumerate(tqdm(val_loader)):
+        for batch_idx, (speaker_video, speaker_video_clip_orig, _, speaker_emotion, _, _, _, listener_emotion, listener_3dmm, listener_references) in enumerate(tqdm(val_loader)):
             if torch.cuda.is_available():
-                # if len(speaker_video_clip.shape) != 1: # if loaded
-                #     speaker_video_clip, speaker_audio_clip = \
-                #         speaker_video_clip.cuda(), speaker_audio_clip.cuda()
-                speaker_emotion, listener_emotion = speaker_emotion[:,:750].cuda(), listener_emotion[:,:750].cuda()
-                speaker_video = speaker_video.cuda()
+                speaker_emotion,  listener_emotion, listener_3dmm = \
+                    speaker_emotion.cuda(), listener_emotion.cuda(), listener_3dmm.cuda()
+
+                if args.use_video:
+                    speaker_video = speaker_video.cuda()
+                    
+                else:
+                    speaker_video = None
             with torch.no_grad():
-                prediction = model(speaker_video, speaker_emotion)
+                prediction = model(speaker_emotion=speaker_emotion, speaker_video=speaker_video, is_train=False)
                 if isinstance(prediction, list) or isinstance(prediction, tuple): # Trans VAE
                     listener_emotion_out = prediction[1]
                 else: # BeLFusion
@@ -215,3 +219,4 @@ if __name__=="__main__":
     os.environ["NUMEXPR_MAX_THREADS"] = '16'
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_ids
     main(args)
+

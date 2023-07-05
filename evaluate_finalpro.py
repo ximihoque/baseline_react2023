@@ -11,7 +11,7 @@ from tqdm import tqdm
 import logging
 from model import TransformerVAEFinalPro
 from utils import AverageMeter
-from render import Render
+# from render import Render
 from model.losses import VAELoss
 from metric import *
 from dataset_emt import get_dataloader
@@ -45,7 +45,7 @@ def parse_arg():
     parser.add_argument('--device', default='cuda', type=str, help="device: cuda / cpu")
     parser.add_argument('--gpu-ids', type=str, default='0', help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')
     parser.add_argument('--kl-p', default=0.0002, type=float, help="hyperparameter for kl-loss")
-    parser.add_argument('--threads', default=8, type=int, help="num max of threads")
+    parser.add_argument('--threads', default=16, type=int, help="num max of threads")
     parser.add_argument('--binarize', action='store_true', help='binarize AUs output from model')
     parser.add_argument('--use-video',  default=False, action='store_true', help='w/ or w/o video modality')
 
@@ -57,7 +57,7 @@ def val(args, model, val_loader, criterion, render, binarize=False):
     losses = AverageMeter()
     rec_losses = AverageMeter()
     kld_losses = AverageMeter()
-    # model.eval()
+    model.eval()
 
     out_dir = os.path.join(args.outdir, args.split)
     if not os.path.exists(out_dir):
@@ -179,7 +179,7 @@ def main(args):
             # val_loader = get_dataloader(args, split, load_audio=False, load_video_s=False, load_emotion_s=True, load_emotion_l=True, load_3dmm_l=True, load_ref=True, load_video_orig=True, use_raw_audio=args.use_hubert, mode='val')
         # else:
         val_loader = get_dataloader(args, "../data/val.csv", load_audio=False, 
-                                    load_video_s=False, load_video_l=False,
+                                    load_video_s=args.use_video, load_video_l=False,
                                     load_emotion_s=True, load_emotion_l=True, load_3dmm_l=True, 
                                     load_ref=False, load_video_orig=False, use_raw_audio=args.use_hubert, mode='val')
         
@@ -187,7 +187,7 @@ def main(args):
                                     output_emotion_dim = args.emotion_dim, feature_dim = args.feature_dim, 
                                     seq_len = args.seq_len, max_seq_len=args.max_seq_len, 
                                     online = args.online, window_size = args.window_size, 
-                                    use_hubert=args.use_hubert, device = args.device, use_video=False)
+                                    use_hubert=args.use_hubert, device = args.device, use_video=args.use_video)
         criterion = VAELoss(args.kl_p)
     else: # config-based loading --> BeLFusion
         cfg = load_config(config_path)

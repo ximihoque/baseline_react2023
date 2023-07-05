@@ -112,7 +112,7 @@ def val(args, model, val_loader, criterion, render, epoch):
     losses = AverageMeter()
     rec_losses = AverageMeter()
     kld_losses = AverageMeter()
-    # model.eval()
+    model.eval()
     model.reset_window_size(8)
     for batch_idx, (speaker_video, speaker_video_clip_orig, speaker_audio_clip, speaker_emotion, _, _, _, listener_emotion, listener_3dmm, listener_references) in enumerate(tqdm(val_loader)):
         if torch.cuda.is_available():

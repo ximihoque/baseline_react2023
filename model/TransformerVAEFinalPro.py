@@ -121,7 +121,7 @@ class VideoEncoder(nn.Module):
                                                     nhead=4,
                                                     dim_feedforward=feature_dim*2,
                                                     dropout=0.3)
-        # self.encoder = nn.TransformerEncoder(transformer_layer, num_layers=1)
+        self.encoder = nn.TransformerEncoder(transformer_layer, num_layers=1)
 
     def forward(self, x):
         out = x.permute(0, 2, 1) # N x features x seq
@@ -129,7 +129,7 @@ class VideoEncoder(nn.Module):
         out = self.pool(out)
         out = out.permute(0, 2, 1) # N x seq x features
         
-        # out = self.encoder(out)
+        out = self.encoder(out)
         return out
 
 class EmotionEncoder(nn.Module):
@@ -143,13 +143,13 @@ class EmotionEncoder(nn.Module):
                                                     nhead=4,
                                                     dim_feedforward=feature_dim*2,
                                                     dropout=0.3)
-        # self.encoder = nn.TransformerEncoder(transformer_layer, num_layers=1)
+        self.encoder = nn.TransformerEncoder(transformer_layer, num_layers=1)
 
     def forward(self, x):
         out = x.permute(0, 2, 1) # N x features x seq
         out = self.pool(self.relu(self.conv1(x.permute(0, 2, 1)))) 
         out = out.permute(0, 2, 1)
-        # out = self.encoder(out)
+        out = self.encoder(out)
         return out
 
 
@@ -258,6 +258,7 @@ class TransformerVAEFinalPro(nn.Module):
     def forward_predict(self, speaker_emotion, speaker_video=None):
         distribution  = []
         if self.use_video:
+            # print ('spk vid: ', speaker_video.shape)
             speaker_encoded = self.behaviour_encoder(speaker_emotion, speaker_video)
         else:
             speaker_encoded = self.behaviour_encoder(speaker_emotion)

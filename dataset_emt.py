@@ -14,9 +14,9 @@ from PIL import Image
 import cv2
 from torch.utils.data import DataLoader
 from multiprocessing import Pool
-import torchaudio
+# import torchaudio
 from scipy.io import loadmat
-torchaudio.set_audio_backend("sox_io")
+# torchaudio.set_audio_backend("sox_io")
 from functools import cmp_to_key
 
 random.seed(72)

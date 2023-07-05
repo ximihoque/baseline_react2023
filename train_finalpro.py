@@ -9,7 +9,7 @@ from tqdm import tqdm
 import logging
 from model import TransformerVAEFinalPro
 from utils import AverageMeter
-from render import Render
+# from render import Render
 from dataset_emt import get_dataloader
 from model.losses import VAELoss, div_loss, ContrastiveLoss
 
@@ -78,7 +78,7 @@ def train(args, model, train_loader, optimizer, criterion, train_speaker_flag=Fa
                 distribution, \
                 spk_encoded, list_enc_pos, list_enc_neg = model(speaker_emotion, 
                                                                 (listener_emotion, listener_emotion_neg), 
-                                                                speaker_video, None, is_train=True, 
+                                                                speaker_video, (listener_video, listener_video_neg), is_train=True, 
                                                                 train_speaker_flag=train_speaker_flag)
         with torch.no_grad():
             listener_3dmm_out_, listener_emotion_out_, _ = model(speaker_emotion=speaker_emotion, 
@@ -123,7 +123,7 @@ def val(args, model, val_loader, criterion, render, epoch):
     losses = AverageMeter()
     rec_losses = AverageMeter()
     kld_losses = AverageMeter()
-    # model.eval()
+    model.eval()
     model.reset_window_size(8)
     for batch_idx, (speaker_video, speaker_video_clip_orig, _, speaker_emotion, _, _, _, listener_emotion, listener_3dmm, listener_references) in enumerate(tqdm(val_loader)):
         if torch.cuda.is_available():
@@ -145,18 +145,6 @@ def val(args, model, val_loader, criterion, render, epoch):
             losses.update(loss.data.item(), speaker_emotion.size(0))
             rec_losses.update(rec_loss.data.item(), speaker_emotion.size(0))
             kld_losses.update(kld_loss.data.item(), speaker_emotion.size(0))
-
-
-            if args.render:
-                # print ('rendering...')
-                val_path = os.path.join(args.outdir, 'results_videos', 'val')
-                if not os.path.exists(val_path):
-                    os.makedirs(val_path)
-                B = speaker_emotion.shape[0]
-                if (batch_idx % 50) == 0:
-                    for bs in range(B):
-                        render.rendering(val_path, "e{}_b{}_ind{}".format(str(epoch + 1), str(batch_idx + 1), str(bs + 1)),
-                                listener_3dmm_out[bs], speaker_video_clip_orig[bs].cuda(), listener_references[bs].cuda())
 
 
     model.reset_window_size(args.window_size)
@@ -190,10 +178,7 @@ def main(args):
                                    seq_len = args.seq_len, max_seq_len=args.max_seq_len, 
                                    online = args.online, window_size = args.window_size, 
                                    use_hubert=args.use_hubert, device = args.device, use_video=args.use_video)
-    if args.contrastive:
-        train_criterion = VAELoss(args.kl_p, ContrastiveLoss())
-    else:
-        train_criterion = VAELoss(args.kl_p)
+    train_criterion = VAELoss(args.kl_p, ContrastiveLoss())
     val_criterion = VAELoss(args.kl_p)
 
     optimizer = optim.AdamW(model.parameters(), betas=(0.9, 0.999), lr=args.learning_rate, weight_decay=args.weight_decay)
@@ -208,18 +193,20 @@ def main(args):
     if torch.cuda.is_available():
         print ("Using GPU")
         model = model.cuda()
-        render = Render('cuda')
-    else:
-        render = Render()
+    #     render = Render('cuda')
+    # else:
+    #     render = Render()
 
-    train_speaker_flag = True
+    train_speaker_flag = False
+    # model.behaviour_encoder.video_encoder.requires_grad = False
+    # model.behaviour_encoder.emotion_encoder.requires_grad = False
     prev_loss = 10000
-    plateau_threshold = 3
+    plateau_threshold = 10
     plateau_count = 0
-    loss_threshold = 0.03
+    loss_threshold = 0.01
     record = 0
     # TODO: comment out later
-    model.behaviour_encoder.emotion_encoder.requires_grad = False
+    # model.behaviour_encoder.emotion_encoder.requires_grad = False
     for epoch in range(start_epoch, args.epochs):
         
         train_loss, rec_loss, kld_loss, div_loss, contra_loss = train(args, model, train_loader, optimizer, train_criterion, train_speaker_flag)
@@ -229,22 +216,22 @@ def main(args):
          # checking for contrastive loss plateau
         if (abs(record) <= loss_threshold) and not train_speaker_flag:
             plateau_count += 1
-            print('plateau :', plateau_count)
+            print('Plateau count:', plateau_count)
         else:
             plateau_count = 0
             record = 0
-
         prev_loss = contra_loss
         if (plateau_count == plateau_threshold) and not train_speaker_flag :
             print ("Contrastive loss plateau detected.")
             print ("Switiching encoding: speaker_enc -> listener_out")
-            print ("Freezing behaviour encoders")
+            print ("Freezing behaviour encoders:")
             train_speaker_flag = True
-        
+            model.behaviour_encoder.video_encoder.requires_grad = False
+            model.behaviour_encoder.emotion_encoder.requires_grad = False
 
 
         if (epoch+1) % 10 == 0:
-            val_loss, rec_loss, kld_loss = val(args, model, val_loader, val_criterion, render, epoch)
+            val_loss, rec_loss, kld_loss = val(args, model, val_loader, val_criterion, 0, epoch)
             print("Epoch:  {}   val_loss: {:.5f}   val_rec_loss: {:.5f}  val_kld_loss: {:.5f} ".format(epoch+1, val_loss, rec_loss, kld_loss))
             # if val_loss < lowest_val_loss:
             # lowest_val_loss = val_loss
