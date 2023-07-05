@@ -202,10 +202,8 @@ class TransformerVAEFinalPro(nn.Module):
         self.use_video = use_video
 
         self.behaviour_encoder = BehaviourEncoder(feature_dim, use_video=use_video)
-        # self.listener_encoder = BehaviourEncoder(feature_dim, use_video=use_video)
         self.reaction_decoder = Decoder(output_3dmm_dim = output_3dmm_dim, output_emotion_dim = output_emotion_dim, feature_dim = feature_dim, max_seq_len=max_seq_len, device=device, window_size = self.window_size, online = online)
-        # self.listener_processor = nn.Conv1d(in_channels=25, out_channels=feature_dim, kernel_size=3)
-        # self.pool = nn.AdaptiveMaxPool1d(seq_len)
+
 
     def forward_train(self, speaker_emotion, listener_emotion, speaker_video=None, listener_video=None, train_speaker_flag=False):
 
