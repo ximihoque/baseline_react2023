@@ -9,7 +9,7 @@ import torch.optim as optim
 import argparse
 from tqdm import tqdm
 import logging
-from model import TransformerVAEFinalPro
+from model import TransformerVAEFinalPro, TransformerVAEX
 from utils import AverageMeter
 # from render import Render
 from model.losses import VAELoss
@@ -48,7 +48,7 @@ def parse_arg():
     parser.add_argument('--threads', default=16, type=int, help="num max of threads")
     parser.add_argument('--binarize', action='store_true', help='binarize AUs output from model')
     parser.add_argument('--use-video',  default=False, action='store_true', help='w/ or w/o video modality')
-
+    parser.add_argument('--eval',  default=False, action='store_true', help='w/ or w/o video modality')
     args = parser.parse_args()
     return args
 
@@ -57,7 +57,8 @@ def val(args, model, val_loader, criterion, render, binarize=False):
     losses = AverageMeter()
     rec_losses = AverageMeter()
     kld_losses = AverageMeter()
-    model.eval()
+    if args.eval:
+        model.eval()
 
     out_dir = os.path.join(args.outdir, args.split)
     if not os.path.exists(out_dir):
@@ -83,7 +84,7 @@ def val(args, model, val_loader, criterion, render, binarize=False):
   
             if isinstance(prediction, list) or isinstance(prediction, tuple): # Trans VAE
                 listener_3dmm_out, listener_emotion_out, distribution = prediction
-                loss, rec_loss, kld_loss = criterion(listener_emotion, listener_3dmm, listener_emotion_out, listener_3dmm_out, distribution)
+                loss, rec_loss, kld_loss, _ = criterion(listener_emotion, listener_3dmm, listener_emotion_out, listener_3dmm_out, distribution)
 
                 losses.update(loss.data.item(), speaker_emotion.size(0))
                 rec_losses.update(rec_loss.data.item(), speaker_emotion.size(0))
@@ -183,7 +184,7 @@ def main(args):
                                     load_emotion_s=True, load_emotion_l=True, load_3dmm_l=True, 
                                     load_ref=False, load_video_orig=False, use_raw_audio=args.use_hubert, mode='val')
         
-        model = TransformerVAEFinalPro(img_size = args.img_size, audio_dim = args.audio_dim,  output_3dmm_dim = args._3dmm_dim, 
+        model = TransformerVAEX(img_size = args.img_size, audio_dim = args.audio_dim,  output_3dmm_dim = args._3dmm_dim, 
                                     output_emotion_dim = args.emotion_dim, feature_dim = args.feature_dim, 
                                     seq_len = args.seq_len, max_seq_len=args.max_seq_len, 
                                     online = args.online, window_size = args.window_size, 

@@ -39,7 +39,7 @@ class VAELoss(nn.Module):
         self.kl_p = kl_p
         self.contrastive = contrastive
 
-    def forward(self, gt_emotion, gt_3dmm, pred_emotion, pred_3dmm, distribution, **kwargs):
+    def forward(self, gt_emotion, gt_3dmm, pred_emotion, pred_3dmm, distribution, listener_reaction_pred=None, **kwargs):
 
         # emt_loss = self.bce(pred_emotion[:, :, :15].view(-1, 15), gt_emotion[:, :, :15].view(-1, 15)) + self.mse(pred_emotion[:, :, 15:], gt_emotion[:, :, 15:])
         # _3dmm_loss = self.mse(pred_3dmm[:,:, :52], gt_3dmm[:,:, :52]) + 10*self.mse(pred_3dmm[:,:, 52:], gt_3dmm[:,:, 52:])
@@ -56,16 +56,21 @@ class VAELoss(nn.Module):
         kld_loss = kld_loss / len(distribution)
 
         loss += rec_loss + self.kl_p * kld_loss
+        rec_latent = 0
+        if listener_reaction_pred is not None:
+            rec_latent = self.mse(listener_reaction_pred, kwargs['list_pos'])
+
+            loss += rec_latent
 
         if self.contrastive:
             contrastive_loss_pos = self.contrastive(kwargs['spk'], kwargs['list_pos'], 1)
             contrastive_loss_neg = self.contrastive(kwargs['spk'], kwargs['list_neg'], 0)
             contrastive_loss = contrastive_loss_pos + contrastive_loss_neg
-            loss += contrastive_loss
+            # loss += contrastive_loss
 
             return loss, rec_loss, kld_loss, contrastive_loss
         else:
-            return loss, rec_loss, kld_loss
+            return loss, rec_loss, kld_loss, rec_latent
 
 
     def __repr__(self):

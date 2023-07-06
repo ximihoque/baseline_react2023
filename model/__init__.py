@@ -5,3 +5,4 @@ from .TransformerVAEBaseline import TransformerVAEBaseline
 from .TransformerVAEFinalPro import TransformerVAEFinalPro
 from .TransformerVAEFinalProDiff import TransformerVAEFinalProDiff
 from .TransformerVAEEmtMarlin import TransformerVAEEmtMarlin
+from .TransformerVAEX import TransformerVAEX
